@@ -571,7 +571,7 @@
 #include "ut/ut.h"          /** struct m0_ut_suite */
 #endif
 
-#define AVOID_BE_SEGMENT    0
+#define AVOID_BE_SEGMENT    1
 /**
  *  --------------------------------------------
  *  Section START - BTree Structure and Operations
@@ -643,12 +643,14 @@ enum {
 		(__cb) = (__cb);                                             \
 	} while (0)
 
+
+#endif
+#if 0
 #define m0_be_engine_tx_size_max(en, cred, payload_size)                     \
 	do {                                                                 \
 		*(cred) = M0_BE_TX_CREDIT(0, 0);                             \
 	} while (0)
 #endif
-
 #if (AVOID_BE_SEGMENT == 1)
 
 #undef M0_BTREE_TX_CAPTURE
@@ -4878,7 +4880,7 @@ static void vkvv_lnode_make(struct slot *slot)
 	uint32_t          total_ksize;
 	uint32_t          total_vsize;
 
-	if(count != 0 && vkvv_is_dir_overlap(slot)){
+	if(count !=0 && vkvv_is_dir_overlap(slot)) {
 		vkvv_move_dir(slot);
 		dir_entry = vkvv_get_dir_addr(slot->s_node);;
 	}
@@ -6000,6 +6002,7 @@ static void btree_put_split_and_find(struct nd *allocated_node,
 	void                    *p_key;
 	m0_bcount_t              vsize;
 	void                    *p_val;
+	int                      min_rec_count;
 
 	/* intialised slot for left and right node*/
 	left_slot.s_node  = allocated_node;
@@ -6010,6 +6013,19 @@ static void btree_put_split_and_find(struct nd *allocated_node,
 	bnode_set_level(allocated_node, bnode_level(current_node));
 
 	bnode_move(current_node, allocated_node, D_LEFT, NR_EVEN);
+
+	if(bnode_level(current_node) > 0)
+		min_rec_count = 2;
+	else
+		min_rec_count = 1;
+
+	/**
+	 * Assert if nodes still contain minimum number of records in the node
+	 * required by btree. If Assert fails, increase the node size or
+	 * decrease the object size.
+	 */
+	M0_ASSERT(bnode_count_rec(current_node) >= min_rec_count);
+	M0_ASSERT(bnode_count_rec(allocated_node) >= min_rec_count);
 
 	/*2) Find appropriate slot for given record */
 
@@ -6484,9 +6500,10 @@ static int64_t btree_put_kv_tick(struct m0_sm_op *smop)
 		/** Fall through if path_check is successful. */
 	case P_SANITY_CHECK: {
 		int  rc = 0;
-		if (bop->bo_opc == M0_BO_PUT && oi->i_key_found)
+		if (oi->i_key_found && bop->bo_opc == M0_BO_PUT )
 			rc = M0_ERR(-EEXIST);
-		else if (bop->bo_opc == M0_BO_UPDATE && !oi->i_key_found)
+		else if (!oi->i_key_found && bop->bo_opc == M0_BO_UPDATE &&
+			 !(bop->bo_flags & BOF_PUT_IF_NOT_EXIST))
 			rc = M0_ERR(-ENOENT);
 
 		if (rc) {
@@ -6502,16 +6519,7 @@ static int64_t btree_put_kv_tick(struct m0_sm_op *smop)
 			.s_node = lev->l_node,
 			.s_idx  = lev->l_idx,
 		};
-		if (bop->bo_opc == M0_BO_PUT) {
-			M0_ASSERT(!oi->i_key_found);
-
-			node_slot.s_rec  = bop->bo_rec;
-			if (!bnode_isfit(&node_slot))
-				return btree_put_makespace_phase(bop);
-
-			bnode_lock(lev->l_node);
-			bnode_make(&node_slot);
-		} else {
+		if (oi->i_key_found) {
 			m0_bcount_t          ksize;
 			void                *p_key;
 			m0_bcount_t          vsize;
@@ -6519,8 +6527,10 @@ static int64_t btree_put_kv_tick(struct m0_sm_op *smop)
 			int                  new_vsize;
 			int                  old_vsize;
 
+			M0_ASSERT(bop->bo_opc == M0_BO_UPDATE);
+
 			REC_INIT(&node_slot.s_rec, &p_key, &ksize,
-						    &p_val, &vsize);
+				 &p_val, &vsize);
 			bnode_rec(&node_slot);
 
 			new_vsize = m0_vec_count(&bop->bo_rec.r_val.ov_vec);
@@ -6538,6 +6548,17 @@ static int64_t btree_put_kv_tick(struct m0_sm_op *smop)
 				bnode_val_resize(&node_slot, vsize_diff);
 			} else
 				return btree_put_makespace_phase(bop);
+		} else {
+			M0_ASSERT(bop->bo_opc == M0_BO_PUT ||
+				  (bop->bo_opc == M0_BO_UPDATE &&
+				  (bop->bo_flags & BOF_PUT_IF_NOT_EXIST)));
+
+			node_slot.s_rec  = bop->bo_rec;
+			if (!bnode_isfit(&node_slot))
+				return btree_put_makespace_phase(bop);
+
+			bnode_lock(lev->l_node);
+			bnode_make(&node_slot);
 		}
 		/** Fall through if there is no overflow.  **/
 	}
@@ -8510,7 +8531,7 @@ M0_INTERNAL void m0_btree_maxkey(struct m0_btree *arbor,
 
 M0_INTERNAL void m0_btree_update(struct m0_btree *arbor,
 				 const struct m0_btree_rec *rec,
-				 const struct m0_btree_cb *cb,
+				 const struct m0_btree_cb *cb, uint64_t flags,
 				 struct m0_btree_op *bop, struct m0_be_tx *tx)
 {
 	bop->bo_opc    = M0_BO_UPDATE;
@@ -8518,7 +8539,7 @@ M0_INTERNAL void m0_btree_update(struct m0_btree *arbor,
 	bop->bo_rec    = *rec;
 	bop->bo_cb     = *cb;
 	bop->bo_tx     = tx;
-	bop->bo_flags  = 0;
+	bop->bo_flags  = flags;
 	bop->bo_seg    = arbor->t_desc->t_seg;
 	bop->bo_i      = NULL;
 
@@ -9882,7 +9903,7 @@ static void btree_ut_kv_oper_thread_handler(struct btree_ut_thread_info *ti)
 			rc = M0_BTREE_OP_SYNC_WITH_RC(&kv_op,
 						      m0_btree_update(tree,
 								      &rec,
-								      &ut_cb,
+								      &ut_cb, 0,
 								      &kv_op,
 								      tx));
 			M0_ASSERT(rc == 0 && data.flags == M0_BSC_SUCCESS);
@@ -9905,7 +9926,7 @@ static void btree_ut_kv_oper_thread_handler(struct btree_ut_thread_info *ti)
 			rc = M0_BTREE_OP_SYNC_WITH_RC(&kv_op,
 						      m0_btree_update(tree,
 								      &rec,
-								      &ut_cb,
+								      &ut_cb, 0,
 								      &kv_op,
 								      tx));
 			M0_ASSERT(rc == 0 && data.flags == M0_BSC_SUCCESS);
@@ -9989,7 +10010,7 @@ static void btree_ut_kv_oper_thread_handler(struct btree_ut_thread_info *ti)
 			rc = M0_BTREE_OP_SYNC_WITH_RC(&kv_op,
 						      m0_btree_update(tree,
 								      &rec,
-								      &ut_cb,
+								      &ut_cb, 0,
 								      &kv_op,
 								      tx));
 			M0_ASSERT(rc == 0 && data.flags == M0_BSC_SUCCESS);
@@ -10023,7 +10044,7 @@ static void btree_ut_kv_oper_thread_handler(struct btree_ut_thread_info *ti)
 
 		rc = M0_BTREE_OP_SYNC_WITH_RC(&kv_op,
 					      m0_btree_update(tree, &rec,
-							      &ut_cb,
+							      &ut_cb, 0,
 							      &kv_op, tx));
 		M0_ASSERT(rc == M0_ERR(-ENOENT));
 		m0_be_tx_close_sync(tx);
