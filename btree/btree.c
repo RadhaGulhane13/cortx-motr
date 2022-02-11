@@ -1767,6 +1767,16 @@ static void bnode_unlock(struct nd *node)
 	m0_rwlock_write_unlock(&node->n_lock);
 }
 
+static void bnode_read_lock(struct nd *node)
+{
+	m0_rwlock_read_lock(&node->n_lock);
+}
+
+static void bnode_read_unlock(struct nd *node)
+{
+	m0_rwlock_read_unlock(&node->n_lock);
+}
+
 static void bnode_fini(const struct nd *node)
 {
 	node->n_type->nt_fini(node);
@@ -5804,17 +5814,17 @@ static bool path_check(struct m0_btree_oimpl *oi, struct td *tree,
 
 	while (total_level >= 0) {
 		l_node = oi->i_level[total_level].l_node;
-		bnode_lock(l_node);
+		bnode_read_lock(l_node);
 		if (!bnode_isvalid(l_node)) {
-			bnode_unlock(l_node);
+			bnode_read_unlock(l_node);
 			bnode_op_fini(&oi->i_nop);
 			return false;
 		}
 		if (oi->i_level[total_level].l_seq != l_node->n_seq) {
-			bnode_unlock(l_node);
+			bnode_read_unlock(l_node);
 			return false;
 		}
-		bnode_unlock(l_node);
+		bnode_read_unlock(l_node);
 		total_level--;
 	}
 	return true;
@@ -5833,17 +5843,17 @@ static bool sibling_node_check(struct m0_btree_oimpl *oi)
 	if (l_sibling == NULL || oi->i_pivot == -1)
 		return true;
 
-	bnode_lock(l_sibling);
+	bnode_read_lock(l_sibling);
 	if (!bnode_isvalid(l_sibling)) {
-		bnode_unlock(l_sibling);
+		bnode_read_unlock(l_sibling);
 		bnode_op_fini(&oi->i_nop);
 		return false;
 	}
 	if (oi->i_level[oi->i_used].l_sib_seq != l_sibling->n_seq) {
-		bnode_unlock(l_sibling);
+		bnode_read_unlock(l_sibling);
 		return false;
 	}
-	bnode_unlock(l_sibling);
+	bnode_read_unlock(l_sibling);
 	return true;
 }
 
@@ -6465,7 +6475,7 @@ static int64_t btree_put_kv_tick(struct m0_sm_op *smop)
 			lev->l_node = oi->i_nop.no_node;
 			node_slot.s_node = oi->i_nop.no_node;
 
-			bnode_lock(lev->l_node);
+			bnode_read_lock(lev->l_node);
 			lev->l_seq = oi->i_nop.no_node->n_seq;
 			oi->i_nop.no_node = NULL;
 
@@ -6482,7 +6492,7 @@ static int64_t btree_put_kv_tick(struct m0_sm_op *smop)
 
 			if (!bnode_isvalid(lev->l_node) || (oi->i_used > 0 &&
 			    bnode_count_rec(lev->l_node) == 0)) {
-				bnode_unlock(lev->l_node);
+				bnode_read_unlock(lev->l_node);
 				return m0_sm_op_sub(&bop->bo_op, P_CLEANUP,
 						    P_SETUP);
 			}
@@ -6498,7 +6508,7 @@ static int64_t btree_put_kv_tick(struct m0_sm_op *smop)
 				}
 				bnode_child(&node_slot, &child_node_addr);
 				if (!address_in_segment(child_node_addr)) {
-					bnode_unlock(lev->l_node);
+					bnode_read_unlock(lev->l_node);
 					bnode_op_fini(&oi->i_nop);
 					return fail(bop, M0_ERR(-EFAULT));
 				}
@@ -6507,15 +6517,15 @@ static int64_t btree_put_kv_tick(struct m0_sm_op *smop)
 				if (oi->i_used >= oi->i_height) {
 					/* If height of tree increased. */
 					oi->i_used = oi->i_height - 1;
-					bnode_unlock(lev->l_node);
+					bnode_read_unlock(lev->l_node);
 					return m0_sm_op_sub(&bop->bo_op,
 							    P_CLEANUP, P_SETUP);
 				}
-				bnode_unlock(lev->l_node);
+				bnode_read_unlock(lev->l_node);
 				return bnode_get(&oi->i_nop, tree,
 						 &child_node_addr, P_NEXTDOWN);
 			} else {
-				bnode_unlock(lev->l_node);
+				bnode_read_unlock(lev->l_node);
 				if (oi->i_key_found && bop->bo_opc == M0_BO_PUT)
 					return P_LOCK;
 				if (!oi->i_key_found &&
@@ -6539,9 +6549,9 @@ static int64_t btree_put_kv_tick(struct m0_sm_op *smop)
 			struct level *child_lev;
 
 			lev = &oi->i_level[oi->i_alloc_lev];
-			bnode_lock(lev->l_node);
+			bnode_read_lock(lev->l_node);
 			if (!bnode_isvalid(lev->l_node)) {
-				bnode_unlock(lev->l_node);
+				bnode_read_unlock(lev->l_node);
 				return m0_sm_op_sub(&bop->bo_op, P_CLEANUP,
 						    P_SETUP);
 			}
@@ -6553,7 +6563,7 @@ static int64_t btree_put_kv_tick(struct m0_sm_op *smop)
 
 			if (!bnode_isoverflow(lev->l_node, max_ksize,
 					      &bop->bo_rec)) {
-				bnode_unlock(lev->l_node);
+				bnode_read_unlock(lev->l_node);
 				break;
 			}
 			if (lev->l_alloc == NULL || (oi->i_alloc_lev == 0 &&
@@ -6567,14 +6577,14 @@ static int64_t btree_put_kv_tick(struct m0_sm_op *smop)
 				int nsize   = bnode_nsize(tree->t_root);
 				int crctype = bnode_crctype_get(lev->l_node);
 				oi->i_nop.no_opc = NOP_ALLOC;
-				bnode_unlock(lev->l_node);
+				bnode_read_unlock(lev->l_node);
 				return bnode_alloc(&oi->i_nop, tree,
 						  nsize, lev->l_node->n_type,
 						  crctype, ksize, vsize,
 						  bop->bo_tx, P_ALLOC_STORE);
 
 			}
-			bnode_unlock(lev->l_node);
+			bnode_read_unlock(lev->l_node);
 			oi->i_alloc_lev--;
 		} while (oi->i_alloc_lev >= 0);
 		return P_LOCK;
@@ -6603,9 +6613,9 @@ static int64_t btree_put_kv_tick(struct m0_sm_op *smop)
 
 				lev->l_alloc = oi->i_nop.no_node;
 				oi->i_nop.no_node = NULL;
-				bnode_lock(lev->l_node);
+				bnode_read_lock(lev->l_node);
 				if (!bnode_isvalid(lev->l_node)) {
-					bnode_unlock(lev->l_node);
+					bnode_read_unlock(lev->l_node);
 					return m0_sm_op_sub(&bop->bo_op,
 							    P_CLEANUP, P_SETUP);
 				}
@@ -6614,7 +6624,7 @@ static int64_t btree_put_kv_tick(struct m0_sm_op *smop)
 				nsize   = bnode_nsize(tree->t_root);
 				crctype = bnode_crctype_get(lev->l_node);
 				oi->i_nop.no_opc = NOP_ALLOC;
-				bnode_unlock(lev->l_node);
+				bnode_read_unlock(lev->l_node);
 				return bnode_alloc(&oi->i_nop, tree,
 						  nsize, lev->l_node->n_type,
 						  crctype, ksize, vsize,
@@ -7311,7 +7321,7 @@ static int64_t btree_get_kv_tick(struct m0_sm_op *smop)
 			lev->l_node = oi->i_nop.no_node;
 			s.s_node = oi->i_nop.no_node;
 
-			bnode_lock(lev->l_node);
+			bnode_read_lock(lev->l_node);
 			lev->l_seq = lev->l_node->n_seq;
 
 			/**
@@ -7326,7 +7336,7 @@ static int64_t btree_get_kv_tick(struct m0_sm_op *smop)
 			 */
 			if (!bnode_isvalid(lev->l_node) || (oi->i_used > 0 &&
 			    bnode_count_rec(lev->l_node) == 0)) {
-				bnode_unlock(lev->l_node);
+				bnode_read_unlock(lev->l_node);
 				return m0_sm_op_sub(&bop->bo_op, P_CLEANUP,
 						    P_SETUP);
 			}
@@ -7349,7 +7359,7 @@ static int64_t btree_get_kv_tick(struct m0_sm_op *smop)
 
 				bnode_child(&s, &child);
 				if (!address_in_segment(child)) {
-					bnode_unlock(lev->l_node);
+					bnode_read_unlock(lev->l_node);
 					bnode_op_fini(&oi->i_nop);
 					return fail(bop, M0_ERR(-EFAULT));
 				}
@@ -7357,15 +7367,15 @@ static int64_t btree_get_kv_tick(struct m0_sm_op *smop)
 				if (oi->i_used >= oi->i_height) {
 					/* If height of tree increased. */
 					oi->i_used = oi->i_height - 1;
-					bnode_unlock(lev->l_node);
+					bnode_read_unlock(lev->l_node);
 					return m0_sm_op_sub(&bop->bo_op,
 							    P_CLEANUP, P_SETUP);
 				}
-				bnode_unlock(lev->l_node);
+				bnode_read_unlock(lev->l_node);
 				return bnode_get(&oi->i_nop, tree, &child,
 						 P_NEXTDOWN);
 			} else {
-				bnode_unlock(lev->l_node);
+				bnode_read_unlock(lev->l_node);
 				return P_LOCK;
 			}
 		} else {
@@ -7531,7 +7541,7 @@ static int64_t btree_iter_kv_tick(struct m0_sm_op *smop)
 			lev->l_node = oi->i_nop.no_node;
 			s.s_node = oi->i_nop.no_node;
 
-			bnode_lock(lev->l_node);
+			bnode_read_lock(lev->l_node);
 			lev->l_seq = lev->l_node->n_seq;
 
 			/**
@@ -7546,7 +7556,7 @@ static int64_t btree_iter_kv_tick(struct m0_sm_op *smop)
 			 */
 			if (!bnode_isvalid(lev->l_node) || (oi->i_used > 0 &&
 			    bnode_count_rec(lev->l_node) == 0)) {
-				bnode_unlock(lev->l_node);
+				bnode_read_unlock(lev->l_node);
 				return m0_sm_op_sub(&bop->bo_op, P_CLEANUP,
 						    P_SETUP);
 			}
@@ -7575,7 +7585,7 @@ static int64_t btree_iter_kv_tick(struct m0_sm_op *smop)
 
 				bnode_child(&s, &child);
 				if (!address_in_segment(child)) {
-					bnode_unlock(lev->l_node);
+					bnode_read_unlock(lev->l_node);
 					bnode_op_fini(&oi->i_nop);
 					return fail(bop, M0_ERR(-EFAULT));
 				}
@@ -7583,11 +7593,11 @@ static int64_t btree_iter_kv_tick(struct m0_sm_op *smop)
 				if (oi->i_used >= oi->i_height) {
 					/* If height of tree increased. */
 					oi->i_used = oi->i_height - 1;
-					bnode_unlock(lev->l_node);
+					bnode_read_unlock(lev->l_node);
 					return m0_sm_op_sub(&bop->bo_op,
 							    P_CLEANUP, P_SETUP);
 				}
-				bnode_unlock(lev->l_node);
+				bnode_read_unlock(lev->l_node);
 				return bnode_get(&oi->i_nop, tree, &child,
 						 P_NEXTDOWN);
 			} else	{
@@ -7608,10 +7618,10 @@ static int64_t btree_iter_kv_tick(struct m0_sm_op *smop)
 				 *   leftmost for PREV flag).
 				 */
 				if (index_is_valid(lev) || oi->i_pivot == -1) {
-					bnode_unlock(lev->l_node);
+					bnode_read_unlock(lev->l_node);
 					return P_LOCK;
 				}
-				bnode_unlock(lev->l_node);
+				bnode_read_unlock(lev->l_node);
 				/**
 				 * We are here, it means we want to load
 				 * sibling node of the leaf node.
@@ -7622,17 +7632,17 @@ static int64_t btree_iter_kv_tick(struct m0_sm_op *smop)
 				 * state machine.
 				 */
 				lev = &oi->i_level[oi->i_pivot];
-				bnode_lock(lev->l_node);
+				bnode_read_lock(lev->l_node);
 				if (!bnode_isvalid(lev->l_node) ||
 				    (oi->i_pivot > 0 &&
 				     bnode_count_rec(lev->l_node) == 0)) {
-					bnode_unlock(lev->l_node);
+					bnode_read_unlock(lev->l_node);
 					bnode_op_fini(&oi->i_nop);
 					return m0_sm_op_sub(&bop->bo_op,
 							    P_CLEANUP, P_SETUP);
 				}
 				if (lev->l_seq != lev->l_node->n_seq) {
-					bnode_unlock(lev->l_node);
+					bnode_read_unlock(lev->l_node);
 					return m0_sm_op_sub(&bop->bo_op,
 							    P_CLEANUP, P_SETUP);
 				}
@@ -7649,12 +7659,12 @@ static int64_t btree_iter_kv_tick(struct m0_sm_op *smop)
 
 				bnode_child(&s, &child);
 				if (!address_in_segment(child)) {
-					bnode_unlock(lev->l_node);
+					bnode_read_unlock(lev->l_node);
 					bnode_op_fini(&oi->i_nop);
 					return fail(bop, M0_ERR(-EFAULT));
 				}
 				oi->i_pivot++;
-				bnode_unlock(lev->l_node);
+				bnode_read_unlock(lev->l_node);
 				return bnode_get(&oi->i_nop, tree, &child,
 						 P_SIBLING);
 			}
@@ -7670,7 +7680,7 @@ static int64_t btree_iter_kv_tick(struct m0_sm_op *smop)
 			lev = &oi->i_level[oi->i_pivot];
 			lev->l_sibling = oi->i_nop.no_node;
 			s.s_node = oi->i_nop.no_node;
-			bnode_lock(lev->l_sibling);
+			bnode_read_lock(lev->l_sibling);
 			lev->l_sib_seq = lev->l_sibling->n_seq;
 
 			/**
@@ -7686,7 +7696,7 @@ static int64_t btree_iter_kv_tick(struct m0_sm_op *smop)
 			if (!bnode_isvalid(lev->l_sibling) ||
 			    (oi->i_pivot > 0 &&
 			     bnode_count_rec(lev->l_sibling) == 0)) {
-				bnode_unlock(lev->l_sibling);
+				bnode_read_unlock(lev->l_sibling);
 				return m0_sm_op_sub(&bop->bo_op, P_CLEANUP,
 						    P_SETUP);
 			}
@@ -7696,22 +7706,22 @@ static int64_t btree_iter_kv_tick(struct m0_sm_op *smop)
 					  bnode_count(s.s_node);
 				bnode_child(&s, &child);
 				if (!address_in_segment(child)) {
-					bnode_unlock(lev->l_sibling);
+					bnode_read_unlock(lev->l_sibling);
 					bnode_op_fini(&oi->i_nop);
 					return fail(bop, M0_ERR(-EFAULT));
 				}
 				oi->i_pivot++;
 				if (oi->i_pivot >= oi->i_height) {
 					/* If height of tree increased. */
-					bnode_unlock(lev->l_sibling);
+					bnode_read_unlock(lev->l_sibling);
 					return m0_sm_op_sub(&bop->bo_op,
 							    P_CLEANUP, P_SETUP);
 				}
-				bnode_unlock(lev->l_sibling);
+				bnode_read_unlock(lev->l_sibling);
 				return bnode_get(&oi->i_nop, tree, &child,
 						 P_SIBLING);
 			} else {
-				bnode_unlock(lev->l_sibling);
+				bnode_read_unlock(lev->l_sibling);
 				return P_LOCK;
 			}
 		} else {
@@ -7942,16 +7952,16 @@ static bool child_node_check(struct m0_btree_oimpl *oi)
 	l_node = oi->i_level[1].l_sibling;
 
 	if (l_node) {
-		bnode_lock(l_node);
+		bnode_read_lock(l_node);
 		if (!bnode_isvalid(l_node)) {
-			bnode_unlock(l_node);
+			bnode_read_unlock(l_node);
 			return false;
 		}
 		if (oi->i_level[1].l_sib_seq != l_node->n_seq) {
-			bnode_unlock(l_node);
+			bnode_read_unlock(l_node);
 			return false;
 		}
-		bnode_unlock(l_node);
+		bnode_read_unlock(l_node);
 	}
 	return true;
 }
@@ -7974,22 +7984,22 @@ static int8_t root_child_is_req(struct m0_btree_op *bop)
 
 	do {
 		lev = &oi->i_level[used_count];
-		bnode_lock(lev->l_node);
+		bnode_read_lock(lev->l_node);
 		if (!bnode_isvalid(lev->l_node)) {
-			bnode_unlock(lev->l_node);
+			bnode_read_unlock(lev->l_node);
 			return -1;
 		}
 		if (used_count == 0) {
 			if (bnode_count_rec(lev->l_node) == 2)
 				load = 1;
-			bnode_unlock(lev->l_node);
+			bnode_read_unlock(lev->l_node);
 			break;
 		}
 		if (!bnode_isunderflow(lev->l_node, true)) {
-			bnode_unlock(lev->l_node);
+			bnode_read_unlock(lev->l_node);
 			break;
 		}
-		bnode_unlock(lev->l_node);
+		bnode_read_unlock(lev->l_node);
 		used_count--;
 	}while (1);
 	return load;
@@ -8022,11 +8032,11 @@ static int64_t root_case_handle(struct m0_btree_op *bop)
 		struct segaddr  root_child;
 		struct level   *root_lev = &oi->i_level[0];
 
-		bnode_lock(root_lev->l_node);
+		bnode_read_lock(root_lev->l_node);
 
 		if (!bnode_isvalid(root_lev->l_node) ||
 		    root_lev->l_node->n_seq != root_lev->l_seq) {
-			bnode_unlock(root_lev->l_node);
+			bnode_read_unlock(root_lev->l_node);
 			return m0_sm_op_sub(&bop->bo_op, P_CLEANUP, P_SETUP);
 		}
 		root_slot.s_node = root_lev->l_node;
@@ -8034,11 +8044,11 @@ static int64_t root_case_handle(struct m0_btree_op *bop)
 
 		bnode_child(&root_slot, &root_child);
 		if (!address_in_segment(root_child)) {
-			bnode_unlock(root_lev->l_node);
+			bnode_read_unlock(root_lev->l_node);
 			bnode_op_fini(&oi->i_nop);
 			return fail(bop, M0_ERR(-EFAULT));
 		}
-		bnode_unlock(root_lev->l_node);
+		bnode_read_unlock(root_lev->l_node);
 		return bnode_get(&oi->i_nop, bop->bo_arbor->t_desc,
 				 &root_child, P_STORE_CHILD);
 	}
@@ -8099,7 +8109,7 @@ static int64_t btree_del_kv_tick(struct m0_sm_op *smop)
 			lev->l_node = oi->i_nop.no_node;
 			node_slot.s_node = oi->i_nop.no_node;
 
-			bnode_lock(lev->l_node);
+			bnode_read_lock(lev->l_node);
 			lev->l_seq = oi->i_nop.no_node->n_seq;
 			oi->i_nop.no_node = NULL;
 
@@ -8115,7 +8125,7 @@ static int64_t btree_del_kv_tick(struct m0_sm_op *smop)
 			 */
 			if (!bnode_isvalid(lev->l_node) || (oi->i_used > 0 &&
 			    bnode_count_rec(lev->l_node) == 0)) {
-				bnode_unlock(lev->l_node);
+				bnode_read_unlock(lev->l_node);
 				return m0_sm_op_sub(&bop->bo_op, P_CLEANUP,
 						    P_SETUP);
 			}
@@ -8132,7 +8142,7 @@ static int64_t btree_del_kv_tick(struct m0_sm_op *smop)
 				bnode_child(&node_slot, &child_node_addr);
 
 				if (!address_in_segment(child_node_addr)) {
-					bnode_unlock(lev->l_node);
+					bnode_read_unlock(lev->l_node);
 					bnode_op_fini(&oi->i_nop);
 					return fail(bop, M0_ERR(-EFAULT));
 				}
@@ -8140,15 +8150,15 @@ static int64_t btree_del_kv_tick(struct m0_sm_op *smop)
 				if (oi->i_used >= oi->i_height) {
 					/* If height of tree increased. */
 					oi->i_used = oi->i_height - 1;
-					bnode_unlock(lev->l_node);
+					bnode_read_unlock(lev->l_node);
 					return m0_sm_op_sub(&bop->bo_op,
 							    P_CLEANUP, P_SETUP);
 				}
-				bnode_unlock(lev->l_node);
+				bnode_read_unlock(lev->l_node);
 				return bnode_get(&oi->i_nop, tree,
 						 &child_node_addr, P_NEXTDOWN);
 			} else {
-				bnode_unlock(lev->l_node);
+				bnode_read_unlock(lev->l_node);
 				if (!oi->i_key_found)
 					return P_LOCK;
 				/**
@@ -8160,12 +8170,12 @@ static int64_t btree_del_kv_tick(struct m0_sm_op *smop)
 				if (oi->i_used > 0) {
 					struct nd *root_node;
 					root_node = oi->i_level[0].l_node;
-					bnode_lock(root_node);
+					bnode_read_lock(root_node);
 					if (bnode_count_rec(root_node) == 2) {
-						bnode_unlock(root_node);
+						bnode_read_unlock(root_node);
 						return root_case_handle(bop);
 					}
-					bnode_unlock(root_node);
+					bnode_read_unlock(root_node);
 				}
 
 				return P_LOCK;
@@ -8180,19 +8190,19 @@ static int64_t btree_del_kv_tick(struct m0_sm_op *smop)
 
 			oi->i_level[1].l_sibling = oi->i_nop.no_node;
 			root_child = oi->i_level[1].l_sibling;
-			bnode_lock(root_child);
+			bnode_read_lock(root_child);
 
 			oi->i_level[1].l_sib_seq = oi->i_nop.no_node->n_seq;
 			oi->i_nop.no_node = NULL;
 
 			if (!bnode_isvalid(root_child) ||
 			    bnode_count_rec(root_child) == 0) {
-				bnode_unlock(root_child);
+				bnode_read_unlock(root_child);
  				return m0_sm_op_sub(&bop->bo_op, P_CLEANUP,
 						    P_SETUP);
 			}
 
-			bnode_unlock(root_child);
+			bnode_read_unlock(root_child);
 			/* Fall through to the next step */
 		} else {
 			bnode_op_fini(&oi->i_nop);
