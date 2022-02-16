@@ -2235,7 +2235,7 @@ M0_INTERNAL int ctg_index_btree_dump(struct m0_motr *motr_ctx,
 
 	ctg_init(ctg, cas_seg(&motr_ctx->cc_reqh_ctx.rc_be.but_dom));
 
-	m0_btree_cursor_init(&cursor, &ctg->cc_tree);
+	m0_btree_cursor_init(&cursor, ctg->cc_tree);
 	for (rc = m0_btree_cursor_first(&cursor); rc == 0;
 			     rc = m0_btree_cursor_next(&cursor)) {
 		m0_btree_cursor_kv_get(&cursor, &key, &val);
@@ -2271,9 +2271,9 @@ int ctgdump(struct m0_motr *motr_ctx, char *fidstr, char *dump_in_hex_str)
 	rc = m0_ctg_store_init(&motr_ctx->cc_reqh_ctx.rc_be.but_dom);
 	M0_ASSERT(rc == 0);
 
-	m0_btree_cursor_init(&cursor, &ctg_store.cs_state->cs_meta->cc_tree);
-	for (rc = m0_btree_cursor_first_sync(&cursor); rc == 0;
-	     rc = m0_btree_cursor_next_sync(&cursor)) {
+	m0_btree_cursor_init(&cursor, ctg_store.cs_state->cs_meta->cc_tree);
+	for (rc = m0_btree_cursor_first(&cursor); rc == 0;
+	     rc = m0_btree_cursor_next(&cursor)) {
 		m0_btree_cursor_kv_get(&cursor, &key, &val);
 		memcpy(&out_fid, key.b_addr + M0_CAS_CTG_KV_HDR_SIZE,
 		      sizeof(out_fid));
