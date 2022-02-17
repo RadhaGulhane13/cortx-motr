@@ -1161,6 +1161,12 @@ static int cob_ns_lookup(struct m0_cob *cob)
 	m0_buf_init(&key, cob->co_nskey, m0_cob_nskey_size(cob->co_nskey));
 	m0_buf_init(&val, &cob->co_nsrec, sizeof cob->co_nsrec);
 
+	#ifdef DEBUG
+		M0_LOG(M0_DEBUG, "RG DEBUG ENABLED");
+	#else
+		M0_LOG(M0_DEBUG, "RG DEBUG DISABLE");
+	#endif
+
 	rc = cob_table_lookup(cob->co_dom->cd_namespace, &key, &val);
 	if (rc == 0) {
 		cob->co_flags |= M0_CA_NSREC;
@@ -1183,6 +1189,11 @@ static int cob_oi_lookup_callback(struct m0_btree_cb  *cb,
 	oikey = (struct m0_cob_oikey *)rec->r_key.k_data.ov_buf[0];
 	nskey = (struct m0_cob_nskey *)rec->r_val.ov_buf[0];
 
+	#ifdef DEBUG
+		M0_LOG(M0_DEBUG, "RG DEBUG ENABLED");
+	#else
+		M0_LOG(M0_DEBUG, "RG DEBUG DISABLE");
+	#endif
 	/*
 	 * Found position should have same fid.
 	 */
