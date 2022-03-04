@@ -6665,10 +6665,10 @@ static int64_t btree_put_kv_tick(struct m0_sm_op *smop)
 	case P_SANITY_CHECK: {
 		int  rc = 0;
 		if (oi->i_key_found && bop->bo_opc == M0_BO_PUT)
-			rc = M0_ERR(-EEXIST);
+			rc = -EEXIST;
 		else if (!oi->i_key_found && bop->bo_opc == M0_BO_UPDATE &&
 			 !(bop->bo_flags & BOF_INSERT_IF_NOT_FOUND))
-			rc = M0_ERR(-ENOENT);
+			rc = -ENOENT;
 
 		if (rc) {
 			lock_op_unlock(tree);
@@ -7434,7 +7434,7 @@ static int64_t btree_get_kv_tick(struct m0_sm_op *smop)
 				bnode_rec(&s);
 			else if (bop->bo_flags & BOF_EQUAL) {
 				lock_op_unlock(tree);
-				return fail(bop, M0_ERR(-ENOENT));
+				return fail(bop, -ENOENT);
 			} else { /** bop->bo_flags & BOF_SLANT */
 				if (lev->l_idx < count)
 					bnode_rec(&s);
@@ -7457,7 +7457,7 @@ static int64_t btree_get_kv_tick(struct m0_sm_op *smop)
 			} else {
 				/** Only root node is present and is empty. */
 				lock_op_unlock(tree);
-				return fail(bop, M0_ERR(-ENOENT));
+				return fail(bop, -ENOENT);
 			}
 		}
 
@@ -7772,7 +7772,7 @@ static int64_t btree_iter_kv_tick(struct m0_sm_op *smop)
 		} else if (oi->i_pivot == -1) {
 			/* Handle rightmost/leftmost key case. */
 			lock_op_unlock(tree);
-			return fail(bop, M0_ERR(-ENOENT));
+			return fail(bop, -ENOENT);
 		} else {
 			/* Return sibling record based on flag. */
 			s.s_node = lev->l_sibling;
@@ -8245,7 +8245,7 @@ static int64_t btree_del_kv_tick(struct m0_sm_op *smop)
 
 		if (!oi->i_key_found) {
 			lock_op_unlock(tree);
-			return fail(bop, M0_ERR(-ENOENT));
+			return fail(bop, -ENOENT);
 		}
 
 		lev = &oi->i_level[oi->i_used];
