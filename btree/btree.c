@@ -3060,11 +3060,11 @@ static void generic_move(struct nd *src, struct nd *tgt, enum direction dir,
 	if (bnode_addrtype_get(src) == INDIRECT_ADDRESSING)
 	{
 		generic_indir_addr_move(src, tgt, dir, nr);
-		// bnode_seq_cnt_update(src);
-		// bnode_fix(src);
-		// bnode_seq_cnt_update(tgt);
-		// bnode_fix(tgt);
-		// return;
+		bnode_seq_cnt_update(src);
+		bnode_fix(src);
+		bnode_seq_cnt_update(tgt);
+		bnode_fix(tgt);
+		return;
 	}
 
 	srcidx = dir == D_LEFT ? 0 : last_idx_src - 1;
@@ -4463,7 +4463,6 @@ static void fkvv_rec_del_credit(const struct nd *node, m0_bcount_t ksize,
 		int           page_shift;                                      \
 		buf        = M0_BUF_INIT(size, NULL);                          \
 		page_shift = __builtin_ffsl(m0_pagesize_get()) - 1;            \
-		M0_ASSERT(0);                                                  \
 		M0_BE_ALLOC_ALIGN_BUF_SYNC(&buf, page_shift, (seg), (tx));     \
 		buf.b_addr;                                                    \
 	})
@@ -4929,8 +4928,9 @@ static uint32_t vkvv_indir_addr_rec_val_size(const struct nd *node, int idx)
 
 		void **p_k_addr;
 
-		void  *k_addr   = *p_k_addr;
+		void  *k_addr;
 		p_k_addr= vkvv_indir_addr_key(node, idx);
+		k_addr  = *p_k_addr;
 		// vsize  = INDIRECT_VAL_SIZE;
 		// offset = vsize * idx + sizeof(void*);
 		// p_v_addr = ((void*)h + size - offset);
@@ -5301,7 +5301,7 @@ static void vkvv_move_dir(struct slot *slot)
 static void vkvv_indirect_kv_alloc_and_fill(struct slot *slot, struct m0_be_tx *tx)
 {
 	struct m0_btree_rec *new_rec = &slot->s_rec;
-//	struct m0_be_seg  *seg        = slot->s_node->n_tree->t_seg;
+	struct m0_be_seg  *seg        = slot->s_node->n_tree->t_seg;
 	void        **p_key_addr = vkvv_key(slot->s_node, slot->s_idx);
 	void        **p_val_addr = vkvv_val(slot->s_node, slot->s_idx + 1);
 	m0_bcount_t   ksize      = m0_vec_count(&new_rec->r_key.k_data.ov_vec);
@@ -5317,11 +5317,11 @@ static void vkvv_indirect_kv_alloc_and_fill(struct slot *slot, struct m0_be_tx *
 		size_req += CRC_VALUE_SIZE;
 	}
 
-//	addr = INDIRECT_ALLOC(size_req, seg, tx);
-	addr = m0_alloc(size_req);
+	addr = INDIRECT_ALLOC(size_req, seg, tx);
+	// addr = m0_alloc(size_req);
 	p_vsize  = addr;
-	p_ksize  = p_vsize + sizeof(uint32_t);
-	key_addr = p_ksize + sizeof(uint32_t);
+	p_ksize  = (void*)p_vsize + sizeof(uint32_t);
+	key_addr = (void*)p_ksize + sizeof(uint32_t);
 	val_addr = key_addr + ksize;
 
 	//memcpy(key_addr, new_rec->r_key.k_data.ov_buf[0], ksize);
@@ -5336,7 +5336,7 @@ static void vkvv_indirect_kv_alloc_and_fill(struct slot *slot, struct m0_be_tx *
 static void vkvv_indirect_key_alloc_and_fill(struct slot *slot, struct m0_be_tx *tx)
 {
 	struct m0_btree_rec *new_rec = &slot->s_rec;
-//	struct m0_be_seg  *seg        = slot->s_node->n_tree->t_seg;
+	struct m0_be_seg  *seg        = slot->s_node->n_tree->t_seg;
 	void        **p_key_addr = vkvv_key(slot->s_node, slot->s_idx);
 	m0_bcount_t   ksize      = m0_vec_count(&new_rec->r_key.k_data.ov_vec);
 	m0_bcount_t   size_req   = sizeof(uint32_t) + ksize;
@@ -5344,10 +5344,9 @@ static void vkvv_indirect_key_alloc_and_fill(struct slot *slot, struct m0_be_tx 
 	uint32_t     *p_ksize;
 	void         *key_addr;
 
-	//addr     = INDIRECT_ALLOC(size_req, seg, tx);
-	addr = m0_alloc(size_req);
+	addr     = INDIRECT_ALLOC(size_req, seg, tx);
 	p_ksize  = addr;
-	key_addr = p_ksize + sizeof(uint32_t);
+	key_addr = (void*)p_ksize + sizeof(uint32_t);
 
 	//memcpy(key_addr, new_rec->r_key.k_data.ov_buf[0], ksize);
 
@@ -5593,39 +5592,46 @@ static void vkvv_indir_addr_val_resize(struct slot *slot, int vsize_diff,
 	uint32_t           curr_vsize = *p_vsize;
 	uint32_t           new_vsize  = curr_vsize + vsize_diff;
 	uint32_t           size_req;
+	void       *addr;
+	uint32_t   *p_ksize;
+	void       *val_addr;
+	void       **p_val_addr;
+	uint32_t     ksize;
+	void        *new_key_addr;
 
 	M0_PRE(tx != NULL);
-
-	if (new_vsize > curr_vsize) {
-		void       *addr;
-		uint32_t   *p_ksize;
-		void       *val_addr;
-		void       **p_val_addr;
-		m0_bcount_t ksize;
-
-		p_val_addr = vkvv_indir_addr_val(slot->s_node, slot->s_idx + 1);
-		ksize = *(uint32_t*)(key_addr - sizeof(uint32_t));
-
-		INDIRECT_FREE(key_addr - 2 * sizeof(uint32_t), seg, tx);
-		size_req   = 2 * sizeof(uint32_t) + ksize + new_vsize;
-
-		if (vkvv_crctype_get(slot->s_node) == M0_BCT_BTREE_ENC_RAW_HASH)
-			size_req += CRC_VALUE_SIZE;
-
-
-		addr = INDIRECT_ALLOC(size_req, seg, tx);
-		p_vsize  = addr;
-		p_ksize  = p_vsize + sizeof(uint32_t);
-		key_addr = p_ksize + sizeof(uint32_t);
-		val_addr = key_addr + ksize;
-
-		*p_ksize    = ksize;
-		*p_vsize    = new_vsize;
-		*p_key_addr = key_addr;
-		*p_val_addr = val_addr;
+	if (new_vsize <= curr_vsize) {
+		*p_vsize = new_vsize;
+		return;
 	}
 
-	*p_vsize = new_vsize;
+
+	p_val_addr = vkvv_indir_addr_val(slot->s_node, slot->s_idx + 1);
+	ksize = *(uint32_t*)(key_addr - sizeof(uint32_t));
+
+	//INDIRECT_FREE(key_addr - 2 * sizeof(uint32_t), seg, tx);
+	size_req   = 2 * sizeof(uint32_t) + ksize + new_vsize;
+
+	if (vkvv_crctype_get(slot->s_node) == M0_BCT_BTREE_ENC_RAW_HASH)
+		size_req += CRC_VALUE_SIZE;
+
+
+	addr = INDIRECT_ALLOC(size_req, seg, tx);
+	p_vsize  = addr;
+	p_ksize  = (void*)p_vsize + sizeof(uint32_t);
+	new_key_addr = (void*)p_ksize + sizeof(uint32_t);
+	val_addr = new_key_addr + ksize;
+
+	*p_ksize    = ksize;
+	*p_vsize    = new_vsize;
+	*p_key_addr = new_key_addr;
+	*p_val_addr = val_addr;
+
+	memcpy(new_key_addr, key_addr, ksize);
+
+	INDIRECT_FREE(key_addr - 2 * sizeof(uint32_t), seg, tx);
+
+
 }
 
 static void vkvv_val_resize(struct slot *slot, int vsize_diff,
@@ -6097,7 +6103,6 @@ static void generic_indir_addr_move(struct nd *src, struct nd *tgt,
 	int               total_vsize;
 	int               new_total;
 
-	return;
 
 	/**
 	 * This function does not support random @nr, as such requirement found.
@@ -6883,6 +6888,9 @@ static int64_t btree_put_makespace_phase(struct m0_btree_op *bop)
 	 * move records from current node to new node and find slot for given
 	 * record
 	 */
+	if (bop->bo_opc == M0_BO_UPDATE) {
+		M0_ASSERT((IS_INDIRECT_ADDR(lev->l_node)) == false);
+	}
 	M0_PRE(lev->l_alloc != NULL);
 	bnode_lock(lev->l_alloc);
 	bnode_lock(lev->l_node);
@@ -7462,7 +7470,7 @@ static int64_t btree_put_kv_tick(struct m0_sm_op *smop)
 
 			vsize_diff = new_vsize - old_vsize;
 
-			if (vsize_diff <= 0 ||
+			if (IS_INDIRECT_ADDR(lev->l_node) || vsize_diff <= 0 ||
 			    bnode_space(lev->l_node) >= vsize_diff) {
 				/**
 				 * If new value size is able to accomodate in
@@ -10118,6 +10126,8 @@ static int ut_btree_kv_get_cb(struct m0_btree_cb *cb, struct m0_btree_rec *rec)
 					if (key != value)
 						M0_ASSERT(0);
 			}
+
+			///M0_ASSERT(value == key + 1);
 		}
 	}
 
@@ -10639,6 +10649,7 @@ static void ut_multi_stream_kv_oper_temp(void)
 	uint32_t                rnode_sz        = m0_pagesize_get();
 	uint32_t                rnode_sz_shift;
 	struct m0_fid           fid             = M0_FID_TINIT('b', 0, 1);
+	int j;
 
 	M0_ENTRY();
 
@@ -10647,7 +10658,7 @@ static void ut_multi_stream_kv_oper_temp(void)
 	srandom(curr_time);
 
 	stream_count = 1;
-	recs_per_stream = 100;
+	recs_per_stream = 254;
 
 	btree_ut_init();
 	/**
@@ -10739,9 +10750,124 @@ static void ut_multi_stream_kv_oper_temp(void)
 								&ut_cb,
 								&kv_op, tx));
 		M0_ASSERT(rc == 0 && put_data.flags == M0_BSC_SUCCESS);
+
 		m0_be_tx_close_sync(tx);
 		m0_be_tx_fini(tx);
 
+			for (j = 1; j <= i; j++) {
+				struct ut_cb_data    get_data;
+				struct m0_btree_key  get_key;
+				struct m0_bufvec     get_value;
+				uint64_t             find_key;
+				void                *find_key_ptr      = &find_key;
+				m0_bcount_t          find_key_size     = sizeof find_key;
+				struct m0_btree_key  find_key_in_tree;
+
+				//find_key = m0_byteorder_cpu_to_be64(i);
+				find_key = j;
+				find_key_in_tree.k_data =
+					M0_BUFVEC_INIT_BUF(&find_key_ptr, &find_key_size);
+
+				get_key.k_data = M0_BUFVEC_INIT_BUF(&k_ptr, &ksize);
+				get_value      = M0_BUFVEC_INIT_BUF(&v_ptr, &vsize);
+
+				get_data.key            = &get_key;
+				get_data.value          = &get_value;
+				get_data.check_value    = true;
+				get_data.crc            = M0_BCT_NO_CRC;
+				get_data.embedded_ksize = false;
+				get_data.embedded_vsize = false;
+
+				ut_cb.c_act    = ut_btree_kv_get_cb;
+				ut_cb.c_datum  = &get_data;
+
+				rc = M0_BTREE_OP_SYNC_WITH_RC(&kv_op,
+								m0_btree_get(tree,
+										&find_key_in_tree,
+										&ut_cb, BOF_EQUAL,
+										&kv_op));
+				M0_ASSERT(rc == M0_BSC_SUCCESS &&
+						j == (key));
+			}
+	}
+
+
+	for (i = 1; i <= recs_per_stream * stream_count; i++) {
+		struct ut_cb_data    put_data;
+		struct m0_btree_rec  rec;
+	//	uint32_t             stream_num;
+
+		rec.r_key.k_data   = M0_BUFVEC_INIT_BUF(&k_ptr, &ksize);
+		rec.r_val          = M0_BUFVEC_INIT_BUF(&v_ptr, &vsize);
+		rec.r_crc_type     = M0_BCT_NO_CRC;
+
+
+		//int k;
+
+		key = i;
+		value = i + 1;
+		printf("%d  ",i);
+
+		//key = m0_byteorder_cpu_to_be64(key);
+		// for (k = 0; k < ARRAY_SIZE(value); k++) {
+		// 	value[k] = key;
+		// }
+
+		put_data.key       = &rec.r_key;
+		put_data.value     = &rec.r_val;
+
+		ut_cb.c_act        = ut_btree_kv_put_cb;
+		ut_cb.c_datum      = &put_data;
+
+		m0_be_ut_tx_init(tx, ut_be);
+		m0_be_tx_prep(tx, &cred);
+		rc = m0_be_tx_open_sync(tx);
+		M0_ASSERT(rc == 0);
+
+		rc = M0_BTREE_OP_SYNC_WITH_RC(&kv_op,
+						m0_btree_update(tree, &rec,
+								&ut_cb, 0,
+								&kv_op, tx));
+		M0_ASSERT(rc == 0 && put_data.flags == M0_BSC_SUCCESS);
+
+		m0_be_tx_close_sync(tx);
+		m0_be_tx_fini(tx);
+
+			for (j = 1; j <= i; j++) {
+				struct ut_cb_data    get_data;
+				struct m0_btree_key  get_key;
+				struct m0_bufvec     get_value;
+				uint64_t             find_key;
+				void                *find_key_ptr      = &find_key;
+				m0_bcount_t          find_key_size     = sizeof find_key;
+				struct m0_btree_key  find_key_in_tree;
+
+				//find_key = m0_byteorder_cpu_to_be64(i);
+				find_key = j;
+				find_key_in_tree.k_data =
+					M0_BUFVEC_INIT_BUF(&find_key_ptr, &find_key_size);
+
+				get_key.k_data = M0_BUFVEC_INIT_BUF(&k_ptr, &ksize);
+				get_value      = M0_BUFVEC_INIT_BUF(&v_ptr, &vsize);
+
+				get_data.key            = &get_key;
+				get_data.value          = &get_value;
+				get_data.check_value    = true;
+				get_data.crc            = M0_BCT_NO_CRC;
+				get_data.embedded_ksize = false;
+				get_data.embedded_vsize = false;
+
+				ut_cb.c_act    = ut_btree_kv_get_cb;
+				ut_cb.c_datum  = &get_data;
+
+				rc = M0_BTREE_OP_SYNC_WITH_RC(&kv_op,
+								m0_btree_get(tree,
+										&find_key_in_tree,
+										&ut_cb, BOF_EQUAL,
+										&kv_op));
+				M0_ASSERT(rc == M0_BSC_SUCCESS &&
+						j == (key));
+			}
 	}
 
 	#if 0
@@ -11379,6 +11505,7 @@ static void btree_ut_kv_oper_thread_handler(struct btree_ut_thread_info *ti)
 		key_first     = key_iter_start;
 		ut_cb.c_act   = ut_btree_kv_update_cb;
 		ut_cb.c_datum = &data;
+
 		while (vsize_random && key_first <= key_last) {
 			vsize = GET_RANDOM_VALSIZE(value, key_first,
 						   key_iter_start,
