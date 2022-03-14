@@ -5444,6 +5444,9 @@ static void vkvv_indir_addr_rec_make(struct slot *slot, void *rec, struct m0_be_
 	else
 		vkvv_indir_addr_key_fill(slot, rec);
 
+	if (ksize > h->vkvv_max_ksize)
+		h->vkvv_max_ksize = ksize;
+
 	// vkvv_indir_addr_key_fill(slot);
 	// if (h->vkvv_level == 0)
 	// 	vkvv_indir_addr_val_fill(slot);
