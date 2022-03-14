@@ -5382,21 +5382,21 @@ static void vkvv_indir_addr_rec_fill(struct slot *slot, void *rec)
 {
 	void     **p_key_addr = vkvv_key(slot->s_node, slot->s_idx);
 	void     **p_val_addr = vkvv_val(slot->s_node, slot->s_idx + 1);
-	void      *key_addr   = rec;
-	void      *val_addr;
 	uint32_t   ksize      = m0_vec_count(&slot->s_rec.r_key.k_data.ov_vec);
 	uint32_t   vsize      = m0_vec_count(&slot->s_rec.r_val.ov_vec);
+	void      *key_addr   = rec;
+	void      *val_addr   = rec + ksize;
 	uint32_t  *p_ksize;
 	uint32_t  *p_vsize;
 
 	M0_ASSERT(rec != NULL);
 
-	*p_key_addr = key_addr;
 	p_ksize     = key_addr - sizeof(uint32_t);
 	p_vsize     = key_addr - 2 * sizeof(uint32_t);
 
-	val_addr    = rec + ksize;
+	*p_key_addr = key_addr;
 	*p_val_addr = val_addr;
+
 	*p_ksize    = ksize;
 	*p_vsize    = vsize;
 }
@@ -7109,13 +7109,12 @@ static int indirect_kv_alloc_rec(struct m0_btree_op    *bop,
 	struct m0_be_tx       *tx       = bop->bo_tx;
 	struct m0_btree_oimpl *oi       = bop->bo_i;
 	struct m0_btree_rec   *user_rec = &bop->bo_rec;
-	m0_bcount_t            ksize    = m0_vec_count(&user_rec->r_key.k_data.ov_vec);
-	m0_bcount_t            req_size;
+	uint32_t            ksize    = m0_vec_count(&user_rec->r_key.k_data.ov_vec);
+	uint32_t            req_size;
 	struct level          *lev;
 
 	if (for_leaf)
 	{
-		m0_bcount_t req_size;
 		m0_bcount_t  vsize = m0_vec_count(&user_rec->r_val.ov_vec);
 		lev = &oi->i_level[oi->i_used];
 		req_size = ksize + vsize + 2 * sizeof(uint32_t); /* to do add CRC*/
@@ -10234,7 +10233,6 @@ static int ut_btree_kv_get_cb(struct m0_btree_cb *cb, struct m0_btree_rec *rec)
 		 * case we use the complement of the key for comparison.
 		 */
 		if (check_failed) {
-			#if 0
 			v_off = 0;
 			m0_bufvec_cursor_init(&vcur, &rec->r_val);
 			key = ~key;
@@ -10251,9 +10249,7 @@ static int ut_btree_kv_get_cb(struct m0_btree_cb *cb, struct m0_btree_rec *rec)
 					if (key != value)
 						M0_ASSERT(0);
 			}
-			#endif
 
-			M0_ASSERT(value == key + 1);
 		}
 	}
 
@@ -12059,6 +12055,8 @@ static void btree_ut_kv_oper_thread_handler(struct btree_ut_thread_info *ti)
 		ut_cb.c_act   = ut_btree_kv_del_cb;
 		ut_cb.c_datum = &data;
 		while (keys_put_count) {
+			int temp = keys_put_count;
+			printf("%d\t", temp);
 			ksize = ksize_random ?
 				GET_RANDOM_KEYSIZE(key, del_key, key_iter_start,
 						   ti->ti_key_incr) :
@@ -12088,6 +12086,7 @@ static void btree_ut_kv_oper_thread_handler(struct btree_ut_thread_info *ti)
 
 			UT_THREAD_QUIESCE_IF_REQUESTED();
 		}
+		printf("Del completed...");
 
 		/**
 		 *  Verify deleted Keys are not 'visible'.
