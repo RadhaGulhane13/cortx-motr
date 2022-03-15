@@ -2033,6 +2033,7 @@ static int64_t bnode_get(struct node_op *op, struct td *tree,
 	struct nd              *node;
 	bool                    in_lrulist;
 	uint32_t                ntype;
+	bool                    load_node = false;
 
 	/**
 	 * TODO: Include function bnode_access() during async mode of btree
@@ -2137,8 +2138,19 @@ static int64_t bnode_get(struct node_op *op, struct td *tree,
 		    bnode_crctype_get(op->no_node) != M0_BCT_NO_CRC) {
 			bnode_crc_validate(op->no_node);
 		}
+		load_node = true;
 	}
 	m0_rwlock_write_unlock(&list_lock);
+
+	if (load_node) {
+		void *start_addr = segaddr_addr(&node->n_addr);
+		void *last_addr  = start_addr + node->n_size;
+
+		while(start_addr < last_addr) {
+			start_addr += 4 * 1024;
+		}
+	}
+
 	return nxt;
 }
 
