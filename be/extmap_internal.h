@@ -141,7 +141,7 @@ enum m0_be_emap_format_version {
 
 enum {
 	/** Root node size for balloc extend and group descriptor trees. */
-	EMAP_ROOT_NODE_SIZE = 1024 * 64,
+	EMAP_ROOT_NODE_SIZE = 40 * (1024 * 4),
 };
 
 /**
