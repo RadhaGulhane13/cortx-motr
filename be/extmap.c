@@ -399,7 +399,7 @@ M0_INTERNAL void m0_be_emap_create(struct m0_be_emap   *map,
 
 	bt = (struct m0_btree_type) {
 		.tt_id = M0_BT_EMAP_EM_MAPPING,
-		.ksize = sizeof(struct m0_be_emap_key),
+		.ksize = -1,
 		.vsize = -1,
 	};
 	keycmp.rko_keycmp = be_emap_cmp;
@@ -408,7 +408,7 @@ M0_INTERNAL void m0_be_emap_create(struct m0_be_emap   *map,
 				      m0_btree_create(&map->em_mp_node,
 						      sizeof map->em_mp_node,
 						      &bt, M0_BCT_NO_CRC,
-						      EMBEDDED_RECORD, &b_op,
+						      INDIRECT_ADDRESSING, &b_op,
 						      map->em_mapping,
 						      map->em_seg, &fid, tx,
 						      &keycmp));
