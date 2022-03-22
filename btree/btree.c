@@ -987,7 +987,7 @@ struct node_type {
 	 * decreased by vsize_diff else it will get increased by vsize_diff.
 	 */
 	void (*nt_val_resize) (struct slot *slot, int vsize_diff,
-			       struct m0_be_tx *tx);
+			       struct m0_btree_oimpl *oi, struct m0_be_tx *tx);
 
 	/** Returns index of the record containing the key in the node */
 	bool (*nt_find) (struct slot *slot, const struct m0_btree_key *key);
@@ -1280,7 +1280,7 @@ static bool bnode_isfit(struct slot *slot);
 static void bnode_done(struct slot *slot, bool modified);
 static void bnode_make(struct slot *slot);
 static void bnode_val_resize(struct slot *slot, int vsize_diff,
-			     struct m0_be_tx *tx);
+			     struct m0_btree_oimpl *oi, struct m0_be_tx *tx);
 static bool bnode_find (struct slot *slot, struct m0_btree_key *key);
 static void bnode_seq_cnt_update (struct nd *node);
 static void bnode_fix  (const struct nd *node);
@@ -1763,10 +1763,10 @@ static void bnode_make(struct slot *slot)
 }
 
 static void bnode_val_resize(struct slot *slot, int vsize_diff,
-			     struct m0_be_tx *tx)
+			     struct m0_btree_oimpl *oi, struct m0_be_tx *tx)
 {
 	M0_PRE(bnode_invariant(slot->s_node));
-	slot->s_node->n_type->nt_val_resize(slot, vsize_diff, tx);
+	slot->s_node->n_type->nt_val_resize(slot, vsize_diff, oi, tx);
 }
 
 static bool bnode_find(struct slot *slot, struct m0_btree_key *find_key)
@@ -2523,7 +2523,7 @@ static bool ff_isfit(struct slot *slot);
 static void ff_done(struct slot *slot, bool modified);
 static void ff_make(struct slot *slot);
 static void ff_val_resize(struct slot *slot, int vsize_diff,
-			  struct m0_be_tx *tx);
+			  struct m0_btree_oimpl *oi, struct m0_be_tx *tx);
 static void ff_fix(const struct nd *node);
 static void ff_cut(const struct nd *node, int idx, int size);
 static void ff_del(const struct nd *node, int idx, struct m0_be_tx *tx);
@@ -2940,7 +2940,7 @@ static void ff_make(struct slot *slot)
 }
 
 static void ff_val_resize(struct slot *slot, int vsize_diff,
-			  struct m0_be_tx *tx)
+			  struct m0_btree_oimpl *oi, struct m0_be_tx *tx)
 {
 	struct ff_head  *h     = ff_data(slot->s_node);
 
@@ -3498,7 +3498,7 @@ static bool fkvv_isfit(struct slot *slot);
 static void fkvv_done(struct slot *slot, bool modified);
 static void fkvv_make(struct slot *slot);
 static void fkvv_val_resize(struct slot *slot, int vsize_diff,
-			    struct m0_be_tx *tx);
+			    struct m0_btree_oimpl *oi, struct m0_be_tx *tx);
 static void fkvv_fix(const struct nd *node);
 static void fkvv_cut(const struct nd *node, int idx, int size);
 static void fkvv_del(const struct nd *node, int idx, struct m0_be_tx *tx);
@@ -4004,7 +4004,7 @@ static void fkvv_make(struct slot *slot)
 }
 
 static void fkvv_val_resize(struct slot *slot, int vsize_diff,
-			    struct m0_be_tx *tx)
+			    struct m0_btree_oimpl *oi, struct m0_be_tx *tx)
 {
 	struct fkvv_head *h = fkvv_data(slot->s_node);
 	void             *val_addr;
@@ -4502,7 +4502,7 @@ static bool vkvv_isfit(struct slot *slot);
 static void vkvv_done(struct slot *slot, bool modified);
 static void vkvv_make(struct slot *slot);
 static void vkvv_val_resize(struct slot *slot, int vsize_diff,
-			    struct m0_be_tx *tx);
+			    struct m0_btree_oimpl *oi, struct m0_be_tx *tx);
 static void vkvv_fix(const struct nd *node);
 static void vkvv_cut(const struct nd *node, int idx, int size);
 static void vkvv_del(const struct nd *node, int idx, struct m0_be_tx *tx);
@@ -5515,6 +5515,7 @@ static void vkvv_make(struct slot *slot)
 }
 
 static void vkvv_indir_addr_val_resize(struct slot *slot, int vsize_diff,
+				       struct m0_btree_oimpl *oi,
 				       struct m0_be_tx *tx)
 {
 	struct m0_be_seg  *seg        = slot->s_node->n_tree->t_seg;
@@ -5528,6 +5529,7 @@ static void vkvv_indir_addr_val_resize(struct slot *slot, int vsize_diff,
 	M0_PRE(tx != NULL);
 
 	if (new_vsize > curr_vsize) {
+		M0_PRE(oi != NULL);
 		req_size = sizeof(uint32_t) + new_vsize;
 
 		if (vkvv_crctype_get(slot->s_node) == M0_BCT_BTREE_ENC_RAW_HASH)
@@ -5538,6 +5540,8 @@ static void vkvv_indir_addr_val_resize(struct slot *slot, int vsize_diff,
 		val_addr = INDIRECT_ALLOC(req_size, seg, tx);
 		val_addr = val_addr + sizeof(uint32_t);
 		*p_val_addr = val_addr;
+		oi->i_indirect_val = val_addr;
+		oi->i_indirect_vsize = req_size;
 	}
 
 	p_vsize  = val_addr + INDIRECT_SIZE_OFFSET;
@@ -5545,7 +5549,7 @@ static void vkvv_indir_addr_val_resize(struct slot *slot, int vsize_diff,
 }
 
 static void vkvv_val_resize(struct slot *slot, int vsize_diff,
-			    struct m0_be_tx *tx)
+			    struct m0_btree_oimpl *oi, struct m0_be_tx *tx)
 {
 	struct vkvv_head *h              = vkvv_data(slot->s_node);
 	struct dir_rec   *dir_entry      = vkvv_get_dir_addr(slot->s_node);
@@ -5563,7 +5567,7 @@ static void vkvv_val_resize(struct slot *slot, int vsize_diff,
 	M0_PRE(slot->s_idx < h->vkvv_used && h->vkvv_used > 0);
 
 	if (vkvv_addrtype_get(slot->s_node) == INDIRECT_ADDRESSING)
-		return vkvv_indir_addr_val_resize(slot, vsize_diff, tx);
+		return vkvv_indir_addr_val_resize(slot, vsize_diff, oi, tx);
 
 	if (vsize_diff > 0 &&
 	    (end_val_addr - end_dir_addr) < vsize_diff) {
@@ -6805,7 +6809,7 @@ static int64_t btree_put_makespace_phase(struct m0_btree_op *bop)
 		 * Check if crc type of new record is same as crc type of node.
 		 * If it is not same, perform upgrade operation for node.
 		*/
-		bnode_val_resize(&tgt, vsize_diff, bop->bo_tx);
+		bnode_val_resize(&tgt, vsize_diff, NULL, bop->bo_tx);
 		bnode_rec(&tgt);
 	}
 
@@ -6819,7 +6823,7 @@ static int64_t btree_put_makespace_phase(struct m0_btree_op *bop)
 		if (!oi->i_key_found) {
 			bnode_del(tgt.s_node, tgt.s_idx, bop->bo_tx);
 		}else
-			bnode_val_resize(&tgt, -vsize_diff, bop->bo_tx);
+			bnode_val_resize(&tgt, -vsize_diff, NULL, bop->bo_tx);
 
 		bnode_done(&tgt, true);
 		tgt.s_node == lev->l_node ? bnode_seq_cnt_update(lev->l_node) :
@@ -7354,7 +7358,7 @@ static int64_t btree_put_kv_tick(struct m0_sm_op *smop)
 
 			vsize_diff = new_vsize - old_vsize;
 
-			if (vsize_diff <= 0 ||
+			if (IS_INDIRECT_ADDR(lev->l_node) || vsize_diff <= 0 ||
 			    bnode_space(lev->l_node) >= vsize_diff) {
 				/**
 				 * If new value size is able to accomodate in
@@ -7362,7 +7366,7 @@ static int64_t btree_put_kv_tick(struct m0_sm_op *smop)
 				 */
 				bnode_lock(lev->l_node);
 				bnode_val_resize(&node_slot, vsize_diff,
-						 bop->bo_tx);
+						 oi, bop->bo_tx);
 			} else
 				return btree_put_makespace_phase(bop);
 		}
@@ -7407,7 +7411,7 @@ static int64_t btree_put_kv_tick(struct m0_sm_op *smop)
 			}
 			else {
 				bnode_val_resize(&node_slot, -vsize_diff,
-						 bop->bo_tx);
+						 NULL, bop->bo_tx);
 				bnode_done(&node_slot, true);
 			}
 
