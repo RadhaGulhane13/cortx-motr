@@ -82,12 +82,12 @@
    @{
  */
 
-/*
-static void key_print(const struct m0_be_emap_key *k)
-{
-	printf(U128X_F":%08lx", U128_P(&k->ek_prefix), k->ek_offset);
-}
-*/
+
+// static void key_print(const struct m0_be_emap_key *k)
+// {
+// 	printf(U128X_F":%08lx", U128_P(&k->ek_prefix), k->ek_offset);
+// }
+
 static int be_emap_cmp(const void *key0, const void *key1);
 static int emap_it_pack(struct m0_be_emap_cursor *it,
 			int (*btree_func)(struct m0_btree     *btree,
@@ -1217,8 +1217,10 @@ static int emap_it_open(struct m0_be_emap_cursor *it, int prev_rc)
 		ext->ee_cksum_buf.b_addr = rec->er_cksum_nob ?
 								 (void *)&rec->er_footer : NULL;
 		it->ec_unit_size = rec->er_unit_size;
- 		if (!emap_it_prefix_ok(it))
+ 		if (!emap_it_prefix_ok(it)) {
+			M0_ASSERT(0);
 			rc = -ESRCH;
+		}
 	}
 	it->ec_op.bo_u.u_emap.e_rc = rc;
 
@@ -1234,7 +1236,7 @@ static void emap_it_init(struct m0_be_emap_cursor *it,
 	m0_buf_init(&it->ec_keybuf, &it->ec_key, sizeof it->ec_key);
 	it->ec_key.ek_prefix = it->ec_prefix = *prefix;
 	it->ec_key.ek_offset = offset + 1;
-	emap_key_init(&it->ec_key);
+	//emap_key_init(&it->ec_key);
 
 	it->ec_map = map;
 	it->ec_version = map->em_version;
@@ -1265,7 +1267,10 @@ static int emap_it_get_cb(struct m0_btree_cb *cb, struct m0_btree_rec *rec)
 	};
 
 	key = keybuf.b_addr;
+	M0_LOG(M0_ERROR,"RG EMAP KEY REQUIRED->"U128X_F":%" PRIx64, U128_P(&it->ec_key.ek_prefix), it->ec_key.ek_offset);
+
 	it->ec_key = *key;
+	M0_LOG(M0_ERROR, "RG EMAP KEY RECEIVED->"U128X_F":%" PRIx64, U128_P(&it->ec_key.ek_prefix), it->ec_key.ek_offset);
 
 	/* Record operation */
 	if (it->ec_recbuf.b_addr != NULL)
