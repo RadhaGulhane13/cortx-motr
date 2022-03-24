@@ -5654,7 +5654,7 @@ static void vkvv_indir_addr_val_resize(struct slot *slot, int vsize_diff,
 	p_val_addr = vkvv_indir_addr_val(slot->s_node, slot->s_idx + 1);
 	ksize = *(uint32_t*)(INDIR_ADDR_KEY_SIZE(key_addr));
 
-	size_req   = 2 * sizeof(uint32_t) + ksize + new_vsize;
+	size_req = 2 * sizeof(uint32_t) + m0_align(ksize, sizeof(void*)) + new_vsize;
 
 	if (vkvv_crctype_get(slot->s_node) == M0_BCT_BTREE_ENC_RAW_HASH)
 		size_req += CRC_VALUE_SIZE;
@@ -5664,7 +5664,7 @@ static void vkvv_indir_addr_val_resize(struct slot *slot, int vsize_diff,
 	p_ksize  = addr;
 	p_vsize  = (void*)p_ksize + sizeof(uint32_t);
 	new_key_addr = (void*)p_vsize + sizeof(uint32_t);
-	new_val_addr = new_key_addr + ksize;
+	new_val_addr = new_key_addr + m0_align(ksize, sizeof(void*));
 
 	*p_ksize    = ksize;
 	*p_vsize    = new_vsize;
@@ -8974,7 +8974,6 @@ static int64_t btree_del_kv_tick(struct m0_sm_op *smop)
 				return P_LOCK;
 			}
 		} else {
-			M0_ASSERT(0);
 			bnode_op_fini(&oi->i_nop);
 			return m0_sm_op_sub(&bop->bo_op, P_CLEANUP, P_SETUP);
 		}
@@ -8999,7 +8998,6 @@ static int64_t btree_del_kv_tick(struct m0_sm_op *smop)
 			bnode_unlock(root_child);
 			/* Fall through to the next step */
 		} else {
-			M0_ASSERT(0);
 			bnode_op_fini(&oi->i_nop);
 			return m0_sm_op_sub(&bop->bo_op, P_CLEANUP, P_SETUP);
 		}

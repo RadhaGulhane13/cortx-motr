@@ -1218,7 +1218,6 @@ static int emap_it_open(struct m0_be_emap_cursor *it, int prev_rc)
 								 (void *)&rec->er_footer : NULL;
 		it->ec_unit_size = rec->er_unit_size;
  		if (!emap_it_prefix_ok(it)) {
-			M0_ASSERT(0);
 			rc = -ESRCH;
 		}
 	}
@@ -1236,7 +1235,7 @@ static void emap_it_init(struct m0_be_emap_cursor *it,
 	m0_buf_init(&it->ec_keybuf, &it->ec_key, sizeof it->ec_key);
 	it->ec_key.ek_prefix = it->ec_prefix = *prefix;
 	it->ec_key.ek_offset = offset + 1;
-	//emap_key_init(&it->ec_key);
+	emap_key_init(&it->ec_key);
 
 	it->ec_map = map;
 	it->ec_version = map->em_version;
