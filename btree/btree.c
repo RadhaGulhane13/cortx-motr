@@ -5647,7 +5647,11 @@ static void vkvv_indir_addr_val_resize(struct slot *slot, int vsize_diff,
 	M0_PRE(buf != NULL);
 
 	if (new_vsize <= curr_vsize) {
+		ksize = *(uint32_t*)(INDIR_ADDR_KEY_SIZE(key_addr));
 		*p_vsize = new_vsize;
+
+		buf->b_addr = key_addr;
+		buf->b_nob = 2 * sizeof(uint32_t) + m0_align(ksize, sizeof(void*)) + new_vsize;
 		return;
 	}
 

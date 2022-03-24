@@ -244,6 +244,7 @@ static int be_emap_delete_wrapper(struct m0_btree *btree, struct m0_be_tx *tx,
 	void                *k_ptr = key->b_addr;
 	m0_bcount_t          ksize = key->b_nob;
 	int                  rc;
+	struct m0_be_emap_key   e_key = *(struct m0_be_emap_key*)(key->b_addr);
 	struct m0_btree_key  r_key = {
 		.k_data  = M0_BUFVEC_INIT_BUF(&k_ptr, &ksize),
 		};
@@ -251,6 +252,10 @@ static int be_emap_delete_wrapper(struct m0_btree *btree, struct m0_be_tx *tx,
 	rc = M0_BTREE_OP_SYNC_WITH_RC(
 				op,
 				m0_btree_del(btree, &r_key, NULL, op, tx));
+	if (rc == 0) {
+		M0_LOG(M0_ERROR,"RG EMAP DEL KEY->"U128X_F":%" PRIx64, U128_P(&e_key.ek_prefix), e_key.ek_offset);
+
+	}
 	return rc;
 }
 
@@ -258,6 +263,10 @@ static int be_emap_insert_callback(struct m0_btree_cb  *cb,
 			      struct m0_btree_rec *rec)
 {
 	struct m0_btree_rec     *datum = cb->c_datum;
+	struct m0_be_emap_key   *key = rec->r_key.k_data.ov_buf[0];
+
+	M0_LOG(M0_ERROR,"RG EMAP PUT KEY->"U128X_F":%" PRIx64, U128_P(&key->ek_prefix), key->ek_offset);
+
 
 	/** Write the Key and Value to the location indicated in rec. */
 	m0_bufvec_copy(&rec->r_key.k_data,  &datum->r_key.k_data,
