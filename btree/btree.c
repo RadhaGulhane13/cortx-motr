@@ -4727,7 +4727,7 @@ void vkvv_rec_alloc(struct nd *node, struct m0_buf *buf, m0_bcount_t ksize,
 		/* internal node */
 		req_size += ksize;
 	} else {
-		req_size += m0_align(ksize, sizeof(void*)) + vsize;
+		req_size += (m0_align(ksize, sizeof(void*)) + vsize);
 		if (vkvv_crctype_get(node) == M0_BCT_BTREE_ENC_RAW_HASH)
 			req_size += CRC_VALUE_SIZE;
 	}
@@ -5647,7 +5647,13 @@ static void vkvv_indir_addr_val_resize(struct slot *slot, int vsize_diff,
 	M0_PRE(buf != NULL);
 
 	if (new_vsize <= curr_vsize) {
+		ksize = *(uint32_t*)(INDIR_ADDR_KEY_SIZE(key_addr));
 		*p_vsize = new_vsize;
+
+		buf->b_addr = key_addr;
+		buf->b_nob = 2 * sizeof(uint32_t) + m0_align(ksize, sizeof(void*)) + new_vsize;
+		if (vkvv_crctype_get(slot->s_node) == M0_BCT_BTREE_ENC_RAW_HASH)
+			buf->b_nob += CRC_VALUE_SIZE;
 		return;
 	}
 
@@ -6806,8 +6812,8 @@ static int64_t btree_put_root_split_handle(struct m0_btree_op *bop,
 	/* Capture this change in transaction */
 
 	/* TBD : This check needs to be removed when debugging is done. */
-	M0_ASSERT_EX(bnode_expensive_invariant(lev->l_node));
-	M0_ASSERT_EX(bnode_expensive_invariant(oi->i_extra_node));
+	M0_ASSERT(bnode_expensive_invariant(lev->l_node));
+	M0_ASSERT(bnode_expensive_invariant(oi->i_extra_node));
 	bnode_unlock(lev->l_node);
 	bnode_unlock(oi->i_extra_node);
 
@@ -7015,8 +7021,8 @@ static int64_t btree_put_makespace_phase(struct m0_btree_op *bop)
 	btree_node_capture_enlist(oi, lev->l_node, 0);
 
 	/* TBD : This check needs to be removed when debugging is done. */
-	M0_ASSERT_EX(bnode_expensive_invariant(lev->l_alloc));
-	M0_ASSERT_EX(bnode_expensive_invariant(lev->l_node));
+	M0_ASSERT(bnode_expensive_invariant(lev->l_alloc));
+	M0_ASSERT(bnode_expensive_invariant(lev->l_node));
 	bnode_unlock(lev->l_alloc);
 	bnode_unlock(lev->l_node);
 
@@ -7056,7 +7062,7 @@ static int64_t btree_put_makespace_phase(struct m0_btree_op *bop)
 			 * TBD : This check needs to be removed when debugging
 			 * is done.
 			 */
-			M0_ASSERT_EX(bnode_expensive_invariant(lev->l_node));
+			M0_ASSERT(bnode_expensive_invariant(lev->l_node));
 			bnode_unlock(lev->l_node);
 			return P_CAPTURE;
 		}
@@ -7087,8 +7093,8 @@ static int64_t btree_put_makespace_phase(struct m0_btree_op *bop)
 		 * TBD : This check needs to be removed when debugging is
 		 * done.
 		 */
-		M0_ASSERT_EX(bnode_expensive_invariant(lev->l_alloc));
-		M0_ASSERT_EX(bnode_expensive_invariant(lev->l_node));
+		M0_ASSERT(bnode_expensive_invariant(lev->l_alloc));
+		M0_ASSERT(bnode_expensive_invariant(lev->l_node));
 		bnode_unlock(lev->l_alloc);
 		bnode_unlock(lev->l_node);
 
@@ -7577,7 +7583,7 @@ static int64_t btree_put_kv_tick(struct m0_sm_op *smop)
 		 * TBD : This check needs to be removed when debugging is
 		 * done.
 		 */
-		M0_ASSERT_EX(bnode_expensive_invariant(lev->l_node));
+		M0_ASSERT(bnode_expensive_invariant(lev->l_node));
 		bnode_unlock(lev->l_node);
 		return P_CAPTURE;
 	}
@@ -8674,7 +8680,7 @@ static int64_t btree_del_resolve_underflow(struct m0_btree_op *bop)
 		 * TBD : This check needs to be removed when debugging is
 		 * done.
 		 */
-		M0_ASSERT_EX(bnode_expensive_invariant(lev->l_node));
+		M0_ASSERT(bnode_expensive_invariant(lev->l_node));
 
 		node_underflow = bnode_isunderflow(lev->l_node, false);
 		if (used_count != 0 && node_underflow) {
@@ -8722,7 +8728,7 @@ static int64_t btree_del_resolve_underflow(struct m0_btree_op *bop)
 	oi->i_root_child_free = true;
 
 	/* TBD : This check needs to be removed when debugging is done. */
-	M0_ASSERT_EX(bnode_expensive_invariant(lev->l_node));
+	M0_ASSERT(bnode_expensive_invariant(lev->l_node));
 	bnode_unlock(lev->l_node);
 	bnode_unlock(root_child);
 
@@ -9084,7 +9090,7 @@ static int64_t btree_del_kv_tick(struct m0_sm_op *smop)
 		 * TBD : This check needs to be removed when debugging
 		 * is done.
 		 */
-		M0_ASSERT_EX(bnode_expensive_invariant(lev->l_node));
+		M0_ASSERT(bnode_expensive_invariant(lev->l_node));
 		node_underflow = bnode_isunderflow(lev->l_node, false);
 		if (oi->i_used != 0  && node_underflow) {
 			bnode_fini(lev->l_node);
