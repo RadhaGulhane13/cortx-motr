@@ -94,7 +94,7 @@
 #define M0_CTG_ROOT_NODE_SHIFT 16
 
 enum {
-	M0_CTG_ROOT_NODE_SIZE = 65536,
+	M0_CTG_ROOT_NODE_SIZE = 4096,
 
 	/** This should align to Block size on the storage. Change as needed */
 };
