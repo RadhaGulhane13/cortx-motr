@@ -5654,9 +5654,10 @@ static void vkvv_indir_addr_val_resize(struct slot *slot, int vsize_diff,
 		buf->b_nob = 2 * sizeof(uint32_t) + m0_align(ksize, sizeof(void*)) + new_vsize;
 		if (vkvv_crctype_get(slot->s_node) == M0_BCT_BTREE_ENC_RAW_HASH)
 			buf->b_nob += CRC_VALUE_SIZE;
+		M0_LOG(M0_ERROR, "RG BTREE UPDATE VAL is less than EXISTING");
 		return;
 	}
-
+	M0_LOG(M0_ERROR, "RG BTREE UPDATE VAL is greater than EXISTING");
 	p_val_addr = vkvv_indir_addr_val(slot->s_node, slot->s_idx + 1);
 	ksize = *(uint32_t*)(INDIR_ADDR_KEY_SIZE(key_addr));
 
@@ -5685,7 +5686,7 @@ static void vkvv_indir_addr_val_resize(struct slot *slot, int vsize_diff,
 
 	M0_ASSERT((new_val_addr + new_vsize) <= (new_key_addr - 2* sizeof(uint32_t) + size_req));
 
-	INDIR_ADDR_REC_FREE(INDIR_ADDR_START_REC(key_addr), seg, tx);
+	//INDIR_ADDR_REC_FREE(INDIR_ADDR_START_REC(key_addr), seg, tx);
 
 }
 
