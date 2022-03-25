@@ -265,7 +265,6 @@ static int be_emap_insert_callback(struct m0_btree_cb  *cb,
 	struct m0_btree_rec     *datum = cb->c_datum;
 	struct m0_be_emap_key   *key = rec->r_key.k_data.ov_buf[0];
 
-	M0_LOG(M0_ERROR,"RG EMAP PUT KEY->"U128X_F":%" PRIx64, U128_P(&key->ek_prefix), key->ek_offset);
 
 
 	/** Write the Key and Value to the location indicated in rec. */
@@ -273,6 +272,9 @@ static int be_emap_insert_callback(struct m0_btree_cb  *cb,
 		       m0_vec_count(&datum->r_key.k_data.ov_vec));
 	m0_bufvec_copy(&rec->r_val, &datum->r_val,
 		       m0_vec_count(&rec->r_val.ov_vec));
+	M0_LOG(M0_ERROR,"RG EMAP PUT KEY->"U128X_F":%" PRIx64,
+			U128_P(&key->ek_prefix), key->ek_offset);
+
 	return 0;
 }
 
@@ -333,6 +335,11 @@ static int be_emap_update_wrapper(struct m0_btree *btree, struct m0_be_tx *tx,
  	rc = M0_BTREE_OP_SYNC_WITH_RC(
 			op,
 			m0_btree_update(btree, &rec, &update_cb, 0, op, tx));
+	if (rc == 0) {
+		struct m0_be_emap_key   *key = k_ptr;
+		M0_LOG(M0_ERROR,"RG EMAP UPDATE KEY->"U128X_F":%" PRIx64,
+			U128_P(&key->ek_prefix), key->ek_offset);
+	}
 	return rc;
 }
 
@@ -1227,6 +1234,7 @@ static int emap_it_open(struct m0_be_emap_cursor *it, int prev_rc)
 								 (void *)&rec->er_footer : NULL;
 		it->ec_unit_size = rec->er_unit_size;
  		if (!emap_it_prefix_ok(it)) {
+			M0_LOG(M0_ERROR, "RG emap_it_prefix_is_not_ok -ESRCH");
 			rc = -ESRCH;
 		}
 	}
@@ -1244,7 +1252,7 @@ static void emap_it_init(struct m0_be_emap_cursor *it,
 	m0_buf_init(&it->ec_keybuf, &it->ec_key, sizeof it->ec_key);
 	it->ec_key.ek_prefix = it->ec_prefix = *prefix;
 	it->ec_key.ek_offset = offset + 1;
-	emap_key_init(&it->ec_key);
+	//emap_key_init(&it->ec_key);
 
 	it->ec_map = map;
 	it->ec_version = map->em_version;
