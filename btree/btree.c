@@ -4488,13 +4488,22 @@ static void fkvv_rec_del_credit(const struct nd *node, m0_bcount_t ksize,
 
 /* Returns starting location of record. */
 #define INDIR_ADDR_START_REC(p_key) (p_key - (2 * sizeof(uint32_t)))
-
+#if 0
 #define INDIR_ADDR_VAL(p_addr)                                                 \
 	({                                                                     \
 		uint32_t ksize;                                                \
 		void    *val_addr;                                             \
 		ksize    = *(uint32_t*)INDIR_ADDR_KEY_SIZE(p_addr);            \
 		val_addr = p_addr + m0_align(ksize, sizeof(void*));            \
+		val_addr;                                                      \
+	})
+#endif
+#define INDIR_ADDR_VAL(p_addr)                                                 \
+	({                                                                     \
+		uint32_t ksize;                                                \
+		void    *val_addr;                                             \
+		ksize    = *(uint32_t*)INDIR_ADDR_KEY_SIZE(p_addr);            \
+		val_addr = p_addr + ksize;                                     \
 		val_addr;                                                      \
 	})
 
@@ -4508,7 +4517,7 @@ static void fkvv_rec_del_credit(const struct nd *node, m0_bcount_t ksize,
 		buf.b_addr;                                                    \
 	})
 
-#define INDIR_ADDR_REC_FREE(ptr, seg, tx)                                            \
+#define INDIR_ADDR_REC_FREE(ptr, seg, tx)                                      \
 	({                                                                     \
 		struct m0_buf buf;                                             \
 		buf =  M0_BUF_INIT(0, (ptr));                                  \
@@ -4727,7 +4736,8 @@ void vkvv_rec_alloc(struct nd *node, struct m0_buf *buf, m0_bcount_t ksize,
 		/* internal node */
 		req_size += ksize;
 	} else {
-		req_size += (m0_align(ksize, sizeof(void*)) + vsize);
+		//req_size += (m0_align(ksize, sizeof(void*)) + vsize);
+		req_size += (ksize + vsize);
 		if (vkvv_crctype_get(node) == M0_BCT_BTREE_ENC_RAW_HASH)
 			req_size += CRC_VALUE_SIZE;
 	}
@@ -5651,7 +5661,8 @@ static void vkvv_indir_addr_val_resize(struct slot *slot, int vsize_diff,
 		*p_vsize = new_vsize;
 
 		buf->b_addr = key_addr;
-		buf->b_nob = 2 * sizeof(uint32_t) + m0_align(ksize, sizeof(void*)) + new_vsize;
+		//buf->b_nob = 2 * sizeof(uint32_t) + m0_align(ksize, sizeof(void*)) + new_vsize;
+		buf->b_nob = 2 * sizeof(uint32_t) + ksize + new_vsize;
 		if (vkvv_crctype_get(slot->s_node) == M0_BCT_BTREE_ENC_RAW_HASH)
 			buf->b_nob += CRC_VALUE_SIZE;
 		M0_LOG(M0_ERROR, "RG BTREE UPDATE VAL is less than EXISTING");
@@ -5661,7 +5672,8 @@ static void vkvv_indir_addr_val_resize(struct slot *slot, int vsize_diff,
 	p_val_addr = vkvv_indir_addr_val(slot->s_node, slot->s_idx + 1);
 	ksize = *(uint32_t*)(INDIR_ADDR_KEY_SIZE(key_addr));
 
-	size_req = 2 * sizeof(uint32_t) + m0_align(ksize, sizeof(void*)) + new_vsize;
+	//size_req = 2 * sizeof(uint32_t) + m0_align(ksize, sizeof(void*)) + new_vsize;
+	size_req = 2 * sizeof(uint32_t) + ksize + new_vsize;
 
 	if (vkvv_crctype_get(slot->s_node) == M0_BCT_BTREE_ENC_RAW_HASH)
 		size_req += CRC_VALUE_SIZE;
@@ -5671,7 +5683,8 @@ static void vkvv_indir_addr_val_resize(struct slot *slot, int vsize_diff,
 	p_ksize  = addr;
 	p_vsize  = (void*)p_ksize + sizeof(uint32_t);
 	new_key_addr = (void*)p_vsize + sizeof(uint32_t);
-	new_val_addr = new_key_addr + m0_align(ksize, sizeof(void*));
+	//new_val_addr = new_key_addr + m0_align(ksize, sizeof(void*));
+	new_val_addr = new_key_addr + ksize;
 
 	*p_ksize    = ksize;
 	*p_vsize    = new_vsize;
@@ -5686,7 +5699,7 @@ static void vkvv_indir_addr_val_resize(struct slot *slot, int vsize_diff,
 
 	M0_ASSERT((new_val_addr + new_vsize) <= (new_key_addr - 2* sizeof(uint32_t) + size_req));
 
-	//INDIR_ADDR_REC_FREE(INDIR_ADDR_START_REC(key_addr), seg, tx);
+	INDIR_ADDR_REC_FREE(INDIR_ADDR_START_REC(key_addr), seg, tx);
 
 }
 
@@ -6248,8 +6261,8 @@ M0_INTERNAL void m0_btree_put_credit(const struct m0_btree  *tree,
 	struct m0_be_tx_credit cred = {};
 
 	/* Credits for split operation */
-	btree_node_split_credit(tree, m0_align(ksize, sizeof(void *)), vsize,
-				&cred);
+
+	btree_node_split_credit(tree, ksize, vsize, &cred);
 	m0_be_tx_credit_mul(&cred, MAX_TREE_HEIGHT);
 	m0_be_tx_credit_mac(accum, &cred, nr);
 }
@@ -6289,8 +6302,10 @@ M0_INTERNAL void m0_btree_del_credit(const struct m0_btree  *tree,
 	/* Credits for freeing the node. */
 	bnode_free_credit(tree->t_desc->t_root, &cred);
 	/* Credits for deleting record from the node. */
+	// bnode_rec_del_credit(tree->t_desc->t_root,
+	// 		     m0_align(ksize, sizeof(void *)), vsize, &cred);
 	bnode_rec_del_credit(tree->t_desc->t_root,
-			     m0_align(ksize, sizeof(void *)), vsize, &cred);
+			    ksize, vsize, &cred);
 	btree_callback_credit(&cred);
 	m0_be_tx_credit_mul(&cred, MAX_TREE_HEIGHT);
 

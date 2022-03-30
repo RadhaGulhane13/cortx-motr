@@ -97,7 +97,7 @@ static int emap_it_pack(struct m0_be_emap_cursor *it,
 				     const struct m0_buf      *val),
 			struct m0_be_tx *tx);
 static bool emap_it_prefix_ok(const struct m0_be_emap_cursor *it);
-static int emap_it_open(struct m0_be_emap_cursor *it, int prev_rc);
+static int emap_it_open(struct m0_be_emap_cursor *it, int prev_rc, uint64_t flags);
 static void emap_it_init(struct m0_be_emap_cursor *it,
 			 const struct m0_uint128  *prefix,
 			 m0_bindex_t               offset,
@@ -1211,7 +1211,7 @@ static bool emap_it_prefix_ok(const struct m0_be_emap_cursor *it)
 	return m0_uint128_eq(&it->ec_seg.ee_pre, &it->ec_prefix);
 }
 
-static int emap_it_open(struct m0_be_emap_cursor *it, int prev_rc)
+static int emap_it_open(struct m0_be_emap_cursor *it, int prev_rc, uint64_t flags)
 {
 	struct m0_be_emap_key *key;
 	struct m0_be_emap_rec *rec;
@@ -1234,7 +1234,7 @@ static int emap_it_open(struct m0_be_emap_cursor *it, int prev_rc)
 								 (void *)&rec->er_footer : NULL;
 		it->ec_unit_size = rec->er_unit_size;
  		if (!emap_it_prefix_ok(it)) {
-			M0_LOG(M0_ERROR, "RG emap_it_prefix_is_not_ok -ESRCH");
+			M0_LOG(M0_ERROR, "RG emap_it_prefix_is_not_ok -ESRCH opcode: %" PRIx64, flags);
 			rc = -ESRCH;
 		}
 	}
@@ -1330,7 +1330,7 @@ static int emap_it_get(struct m0_be_emap_cursor *it)
 	rc = M0_BTREE_OP_SYNC_WITH_RC(&kv_op,
 				      m0_btree_get(btree, &r_key, &cb,
 						   BOF_SLANT, &kv_op));
-	rc = emap_it_open(it, rc);
+	rc = emap_it_open(it, rc, BOF_SLANT);
 	return rc;
 }
 
@@ -1369,7 +1369,7 @@ static int be_emap_next(struct m0_be_emap_cursor *it)
 	rc = M0_BTREE_OP_SYNC_WITH_RC(&kv_op,
 				      m0_btree_iter(btree, &r_key, &cb,
 						    BOF_NEXT, &kv_op));
-	rc = emap_it_open(it, rc);
+	rc = emap_it_open(it, rc, BOF_NEXT);
 	return rc;
 }
 
@@ -1393,7 +1393,7 @@ be_emap_prev(struct m0_be_emap_cursor *it)
 				      m0_btree_iter(btree, &r_key, &cb,
 						    BOF_PREV, &kv_op));
 
-	rc = emap_it_open(it, rc);
+	rc = emap_it_open(it, rc, BOF_PREV);
 	return rc;
 }
 
