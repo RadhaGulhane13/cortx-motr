@@ -91,12 +91,12 @@
 
 #define M0_CTG_ROOT_NODE_ALIGN 4096
 // #define M0_CTG_SHIFT 10
-#define M0_CTG_SHIFT 12
+#define M0_CTG_SHIFT 10
 // #define M0_CTG_ROOT_NODE_SHIFT 16
 // M0_CTG_ROOT_NODE_SIZE = 4096,
+// M0_CTG_ROOT_NODE_SIZE = 65536,
 enum {
-	M0_CTG_ROOT_NODE_SIZE = 65536,
-
+	M0_CTG_ROOT_NODE_SIZE = 4096,
 	/** This should align to Block size on the storage. Change as needed */
 };
 /** CAS catalogue. */
