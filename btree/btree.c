@@ -574,7 +574,8 @@
 #include "ut/ut.h"          /** struct m0_ut_suite */
 #endif
 
-#define AVOID_BE_SEGMENT    0
+#define AVOID_BE_SEGMENT                  0
+#define M0_BTREE_TRICKLE_NUM_NODES        5
 /**
  *  --------------------------------------------
  *  Section START - BTree Structure and Operations
@@ -831,16 +832,16 @@ struct td {
 	const struct m0_btree_type *t_type;
 
 	/**
-	 * The lock that protects the fields below. The fields above are
+	 * The lock that protects the fields below t_lock. The fields above are
 	 * read-only after the tree root is loaded into memory.
 	 */
 	struct m0_rwlock            t_lock;
-	struct nd                  *t_root;
-	int                         t_height;
-	int                         t_ref;
-	struct m0_be_seg           *t_seg; /** Segment hosting tree nodes. */
-	struct m0_fid               t_fid; /** Fid of the tree. */
-	struct m0_btree_rec_key_op  t_keycmp;
+	struct nd                  *t_root;   /** Points to root node on seg */
+	int                         t_height; /** Height of the tree */
+	int                         t_ref;    /** Reference count */
+	struct m0_be_seg           *t_seg;    /** Segment hosting tree nodes. */
+	struct m0_fid               t_fid;    /** Fid of the tree. */
+	struct m0_btree_rec_key_op  t_keycmp; /** User Key compare function */
 };
 
 /** Special values that can be passed to bnode_move() as 'nr' parameter. */
@@ -1125,7 +1126,7 @@ struct nd {
 	 * Node refernce count. n_ref count indicates the number of times this
 	 * node is fetched for different operations (KV delete, put, get etc.).
 	 * If the n_ref count is non-zero the node should be in active node
-	 * descriptor list. Once n_ref count reaches, it means the node is not
+	 * descriptor list. Once n_ref count reaches 0, it means the node is not
 	 * in use by any operation and is safe to move to global lru list.
 	 */
 	int                     n_ref;
@@ -1179,12 +1180,6 @@ struct node_op {
 
 	/** The node to operate on. */
 	struct nd       *no_node;
-
-	/** Optional transaction. */
-	struct m0_be_tx *no_tx;
-
-	/** Next operation acting on the same node. */
-	struct node_op  *no_next;
 };
 
 
@@ -1204,23 +1199,6 @@ struct slot {
 	int                  s_idx;
 	struct m0_btree_rec  s_rec;
 };
-
-#define REC_INIT(p_rec, pp_key, p_ksz, pp_val, p_vsz)                          \
-	({                                                                     \
-		(p_rec)->r_key.k_data = M0_BUFVEC_INIT_BUF((pp_key), (p_ksz)); \
-		(p_rec)->r_val        = M0_BUFVEC_INIT_BUF((pp_val), (p_vsz)); \
-	})
-#define COPY_RECORD(tgt, src)                                                  \
-	({                                                                     \
-		struct m0_btree_rec *__tgt_rec = (tgt);                        \
-		struct m0_btree_rec *__src_rec = (src);                        \
-									       \
-		m0_bufvec_copy(&__tgt_rec->r_key.k_data,                       \
-			       &__src_rec ->r_key.k_data,                      \
-			       m0_vec_count(&__src_rec ->r_key.k_data.ov_vec));\
-		m0_bufvec_copy(&__tgt_rec->r_val, &__src_rec->r_val,           \
-			       m0_vec_count(&__src_rec ->r_val.ov_vec));       \
-	})
 
 #define COPY_VALUE(tgt, src)                                                   \
 	({                                                                     \
@@ -1485,7 +1463,7 @@ static struct m0_rwlock list_lock;
 /**
  * Total space used by nodes in lru list.
  */
-static int64_t lru_space_used = 0;
+static int64_t lru_space_used;
 
 /** Lru used space watermark default values. */
 enum lru_used_space_watermark{
@@ -1498,19 +1476,35 @@ enum lru_used_space_watermark{
  * Watermarks for BE space occupied by nodes in lru list.
  */
 /** LRU purging should not happen below low used space watermark. */
-int64_t lru_space_wm_low    = LUSW_LOW;
+static int64_t lru_space_wm_low;
 
 /**
  * An ongoing LRU purging can be stopped after reaching target used space
  * watermark.
  */
-int64_t lru_space_wm_target = LUSW_TARGET;
+static int64_t lru_space_wm_target;
 
 /**
  * LRU purging should be triggered if used space is above high used space
  * watermark.
  */
-int64_t lru_space_wm_high   = LUSW_HIGH;
+static int64_t lru_space_wm_high;
+
+/**
+ * LRU trickle release configuration from sysconfig/motr.
+ */
+static bool lru_trickle_release_en;
+
+/**
+ * LRU trickle release mode ON/OFF.
+ * This mode turns On when the lru_used_space goes above the high watermark,
+ * i.e lru_used_space >= lru_space_wm_high
+ * and it remains ON till lru_used_space becomes less than or equal to the
+ * target watermark, i.e lru_used_space <= lru_space_wm_target.
+ */
+#ifndef __KERNEL__
+static bool lru_trickle_release_mode;
+#endif
 
 M0_TL_DESCR_DEFINE(ndlist, "node descr list", static, struct nd,
 		   n_linkage, n_magic, M0_BTREE_ND_LIST_MAGIC,
@@ -1951,24 +1945,22 @@ struct mod {
 	const struct m0_btree_type *m_ttype[TTYPE_NR];
 };
 
-M0_INTERNAL int m0_btree_mod_init(void)
+M0_INTERNAL void m0_btree_glob_init(void)
 {
-	struct mod *m;
+	/* Initialize lru watermark levels and purge settings */
+	#ifndef __KERNEL__
+	lru_trickle_release_mode = false;
+	#endif
+	lru_space_used           = 0;
+	m0_btree_lrulist_set_lru_config(0, 0, 0, 0);
 
-	/** Initialtise lru list, active list and lock. */
+	/* Initialtise lru list, active list and lock. */
 	ndlist_tlist_init(&btree_lru_nds);
 	ndlist_tlist_init(&btree_active_nds);
 	m0_rwlock_init(&list_lock);
-
-	M0_ALLOC_PTR(m);
-	if (m != NULL) {
-		m0_get()->i_moddata[M0_MODULE_BTREE] = m;
-		return 0;
-	} else
-		return M0_ERR(-ENOMEM);
 }
 
-M0_INTERNAL void m0_btree_mod_fini(void)
+M0_INTERNAL void m0_btree_glob_fini(void)
 {
 	struct nd* node;
 
@@ -1989,7 +1981,47 @@ M0_INTERNAL void m0_btree_mod_fini(void)
 	ndlist_tlist_fini(&btree_active_nds);
 
 	m0_rwlock_fini(&list_lock);
+}
+
+M0_INTERNAL int m0_btree_mod_init(void)
+{
+	struct mod *m;
+
+	m0_btree_glob_init();
+
+	M0_ALLOC_PTR(m);
+	if (m != NULL) {
+		m0_get()->i_moddata[M0_MODULE_BTREE] = m;
+		return 0;
+	} else
+		return M0_ERR(-ENOMEM);
+}
+
+M0_INTERNAL void m0_btree_mod_fini(void)
+{
+	m0_btree_glob_fini();
 	m0_free(mod_get());
+}
+
+M0_INTERNAL void m0_btree_lrulist_set_lru_config(int64_t slow_lru_mem_release,
+						 int64_t wm_low,
+						 int64_t wm_target,
+						 int64_t wm_high)
+{
+	lru_trickle_release_en = (slow_lru_mem_release != 0) ? true : false;
+
+	lru_space_wm_low = (wm_low == 0) ? LUSW_LOW : wm_low;
+	lru_space_wm_target = (wm_target == 0) ? LUSW_TARGET : wm_target;
+	lru_space_wm_high = (wm_high == 0) ? LUSW_HIGH : wm_high;
+
+	M0_ASSERT(lru_space_wm_high >= lru_space_wm_target &&
+		  lru_space_wm_target >= lru_space_wm_low);
+
+	M0_LOG(M0_INFO, "Btree LRU List Watermarks: Low - %"PRIi64" Mid - "
+	       "%"PRIi64" High - %"PRIi64" \n", lru_space_wm_low,
+	       lru_space_wm_target, lru_space_wm_high);
+	M0_LOG(M0_INFO, "Btree LRU List trickle release: %s \n",
+	       lru_trickle_release_en ? "true" : "false");
 }
 
 /**
@@ -2340,8 +2372,8 @@ static void bnode_crc_validate(struct nd *node)
  */
 static void bnode_put(struct node_op *op, struct nd *node)
 {
-	bool purge_check   = false;
-	bool is_root_node  = false;
+	bool purge_check  = false;
+	bool is_root_node = false;
 
 	M0_PRE(node != NULL);
 
@@ -2647,7 +2679,7 @@ static void *ff_val(const struct nd *node, int idx)
 	int             value_offset;
 
 	M0_PRE(ergo(!(h->ff_used == 0 && idx == 0),
-		   (0 <= idx && idx <= h->ff_used)));
+		   (0 <= idx && ((uint16_t)idx) <= h->ff_used)));
 
 	node_end_addr = node_start_addr + h->ff_nsize;
 	if (h->ff_level == 0 &&
@@ -3256,7 +3288,7 @@ static void ff_rec_del_credit(const struct nd *node, m0_bcount_t ksize,
 
 /**
  *
- * Proposed Node Structure for Fix Sized Keys and Variable Sized Value :
+ * Node Structure for Fix Sized Keys and Variable Sized Value :
  *
  * Leaf Node Structure :
  *
@@ -4343,7 +4375,7 @@ static void fkvv_rec_del_credit(const struct nd *node, m0_bcount_t ksize,
  *  Variable Sized Keys and Values Node Structure
  *  --------------------------------------------
  *
- * Proposed internal node structure
+ * Internal node structure
  *
  * +----------+----+------+----+----------------+----+----+----+----+----+----+
  * |          |    |      |    |                |    |    |    |    |    |    |
@@ -4358,7 +4390,7 @@ static void fkvv_rec_del_credit(const struct nd *node, m0_bcount_t ksize,
  *                             |                  |
  *                             +------------------+
  *
- * For the internal nodes, the above structure will be used.
+ * For the internal nodes, the above structure is used.
  * The internal nodes will have keys of variable size whereas the values will be
  * of fixed size as they are pointers to child nodes.
  * The Keys will be added starting from the end of the node header in an
@@ -4368,7 +4400,7 @@ static void fkvv_rec_del_credit(const struct nd *node, m0_bcount_t ksize,
  * Using this structure, the overhead of maintaining a directory is reduced.
  *
  *
- * Proposed leaf node structure
+ * Leaf node structure
  *
  *                        +--------------------------+
  *                        |                          |
@@ -4392,8 +4424,8 @@ static void fkvv_rec_del_credit(const struct nd *node, m0_bcount_t ksize,
  *
  *
  *
- *  The above structure represents the way variable sized keys and values will
- *  be stored in memory.
+ *  The above structure represents the way variable sized keys and values are
+ *  stored in memory.
  *  Node Hdr or Node Header will store all the relevant info regarding this node
  *  type.
  *  The Keys will be added starting from the end of the node header in an
@@ -7474,12 +7506,12 @@ static int64_t btree_put_kv_tick(struct m0_sm_op *smop)
 		}
 		/** Fall through if path_check is successful. */
 	case P_SANITY_CHECK: {
-		int  rc = 0;
+		int rc = 0;
 		if (oi->i_key_found && bop->bo_opc == M0_BO_PUT)
-			rc = M0_ERR(-EEXIST);
+			rc = -EEXIST;
 		else if (!oi->i_key_found && bop->bo_opc == M0_BO_UPDATE &&
 			 !(bop->bo_flags & BOF_INSERT_IF_NOT_FOUND))
-			rc = M0_ERR(-ENOENT);
+			rc = -ENOENT;
 
 		if (rc) {
 			lock_op_unlock(tree);
@@ -8080,7 +8112,7 @@ static int  btree_sibling_first_key(struct m0_btree_oimpl *oi, struct td *tree,
 			return 0;
 		}
 	}
-	return M0_ERR(-ENOENT);
+	return -ENOENT;
 }
 
 /**
@@ -8261,7 +8293,7 @@ static int64_t btree_get_kv_tick(struct m0_sm_op *smop)
 				bnode_rec(&s);
 			else if (bop->bo_flags & BOF_EQUAL) {
 				lock_op_unlock(tree);
-				return fail(bop, M0_ERR(-ENOENT));
+				return fail(bop, -ENOENT);
 			} else { /** bop->bo_flags & BOF_SLANT */
 				if (lev->l_idx < count)
 					bnode_rec(&s);
@@ -8284,7 +8316,7 @@ static int64_t btree_get_kv_tick(struct m0_sm_op *smop)
 			} else {
 				/** Only root node is present and is empty. */
 				lock_op_unlock(tree);
-				return fail(bop, M0_ERR(-ENOENT));
+				return fail(bop, -ENOENT);
 			}
 		}
 
@@ -8599,7 +8631,7 @@ static int64_t btree_iter_kv_tick(struct m0_sm_op *smop)
 		} else if (oi->i_pivot == -1) {
 			/* Handle rightmost/leftmost key case. */
 			lock_op_unlock(tree);
-			return fail(bop, M0_ERR(-ENOENT));
+			return fail(bop, -ENOENT);
 		} else {
 			/* Return sibling record based on flag. */
 			s.s_node = lev->l_sibling;
@@ -9072,7 +9104,7 @@ static int64_t btree_del_kv_tick(struct m0_sm_op *smop)
 
 		if (!oi->i_key_found) {
 			lock_op_unlock(tree);
-			return fail(bop, M0_ERR(-ENOENT));
+			return fail(bop, -ENOENT);
 		}
 
 		lev = &oi->i_level[oi->i_used];
@@ -9330,7 +9362,7 @@ static int remap_node(void* addr, int64_t size, struct m0_be_seg *seg)
  *
  * @return int the total size in bytes that was freed.
  */
-M0_INTERNAL int64_t m0_btree_lrulist_purge(int64_t size)
+M0_INTERNAL int64_t m0_btree_lrulist_purge(int64_t size, int64_t num_nodes)
 {
 	struct nd              *node;
 	struct nd              *prev;
@@ -9341,9 +9373,12 @@ M0_INTERNAL int64_t m0_btree_lrulist_purge(int64_t size)
 	struct m0_be_allocator *a;
 	int                     rc;
 
+	M0_PRE(size >= 0 && num_nodes >= 0);
+	M0_PRE((size == 0 && num_nodes != 0) || (size != 0 && num_nodes == 0));
+
 	m0_rwlock_write_lock(&list_lock);
 	node = ndlist_tlist_tail(&btree_lru_nds);
-	while (node != NULL && size > 0) {
+	while (node != NULL && (size > 0 || num_nodes > 0)) {
 		curr_size = 0;
 		prev      = ndlist_tlist_prev(&btree_lru_nds, node);
 		if (node->n_txref == 0 && node->n_ref == 0) {
@@ -9358,7 +9393,10 @@ M0_INTERNAL int64_t m0_btree_lrulist_purge(int64_t size)
 			if (rc == 0) {
 				rc = remap_node(rnode, curr_size, seg);
 				if (rc == 0) {
-					size       -= curr_size;
+					if (size > 0)
+						size -= curr_size;
+					if (num_nodes > 0)
+						--num_nodes;
 					total_size += curr_size;
 					ndlist_tlink_del_fini(node);
 					lru_space_used -= curr_size;
@@ -9389,8 +9427,8 @@ M0_INTERNAL int64_t m0_btree_lrulist_purge(int64_t size)
 M0_INTERNAL int64_t m0_btree_lrulist_purge_check(enum m0_btree_purge_user user,
 						 int64_t size)
 {
-	int64_t size_to_purge;
-	int64_t purged_size = 0;
+	int64_t size_to_purge = 0;
+	int64_t purged_size   = 0;
 
 	if (lru_space_used < lru_space_wm_low) {
 		/** Do nothing. */
@@ -9398,6 +9436,7 @@ M0_INTERNAL int64_t m0_btree_lrulist_purge_check(enum m0_btree_purge_user user,
 			M0_LOG(M0_INFO, "Skipping memory release since used "
 			       "space is below threshold requested size=%"PRId64
 			       " used space=%"PRId64, size, lru_space_used);
+		lru_trickle_release_mode = false;
 		return 0;
 	}
 	if (lru_space_used < lru_space_wm_high) {
@@ -9406,10 +9445,20 @@ M0_INTERNAL int64_t m0_btree_lrulist_purge_check(enum m0_btree_purge_user user,
 		 * purge lrulist till low watermark or size whichever is
 		 * higher.
 		 */
-		if (user == M0_PU_EXTERNAL) {
+		if (user == M0_PU_EXTERNAL)
 			size_to_purge = min64(lru_space_used - lru_space_wm_low,
 					      size);
-			purged_size = m0_btree_lrulist_purge(size_to_purge);
+		else if (lru_space_used > lru_space_wm_target)
+			size_to_purge = lru_trickle_release_mode ?
+					min64(lru_space_used -
+						 lru_space_wm_target, size) : 0;
+		else
+			lru_trickle_release_mode = false;
+
+		if (size_to_purge != 0 || lru_trickle_release_mode) {
+			purged_size = m0_btree_lrulist_purge(size_to_purge,
+						size_to_purge != 0 ? 0 :
+						M0_BTREE_TRICKLE_NUM_NODES);
 			M0_LOG(M0_INFO, " Below critical External user Purge,"
 			       " requested size=%"PRId64" used space=%"PRId64
 			       " purged size=%"PRId64, size, lru_space_used,
@@ -9422,10 +9471,15 @@ M0_INTERNAL int64_t m0_btree_lrulist_purge_check(enum m0_btree_purge_user user,
 	 * target watermark. For external user, purge lrulist till low watermark
 	 * or size whichever is higher.
 	 */
+	lru_trickle_release_mode = lru_trickle_release_en ? true : false;
 	size_to_purge = user == M0_PU_BTREE ?
-				(lru_space_used - lru_space_wm_target) :
-				min64(lru_space_used - lru_space_wm_low, size);
-	purged_size = m0_btree_lrulist_purge(size_to_purge);
+			(lru_trickle_release_mode ?
+			 min64(lru_space_used - lru_space_wm_target, size) :
+			 (lru_space_used - lru_space_wm_target)) :
+			min64(lru_space_used - lru_space_wm_low, size);
+	purged_size = m0_btree_lrulist_purge(size_to_purge,
+			      (lru_trickle_release_mode && size_to_purge == 0) ?
+			      M0_BTREE_TRICKLE_NUM_NODES : 0);
 	M0_LOG(M0_INFO, " Above critical purge, User=%s requested size="
 	       "%"PRId64" used space=%"PRIu64" purged size="
 	       "%"PRIu64, user == M0_PU_BTREE ? "btree" : "external", size,
@@ -13162,7 +13216,7 @@ static void ut_lru_test(void)
 
 	M0_ASSERT(ndlist_tlist_length(&btree_lru_nds) > 0);
 
-	mem_freed      = m0_btree_lrulist_purge(mem_increased/2);
+	mem_freed      = m0_btree_lrulist_purge(mem_increased/2, 0);
 	mem_after_free = sysconf(_SC_AVPHYS_PAGES) * sysconf(_SC_PAGESIZE);
 	M0_LOG(M0_INFO, "Mem After Free (%"PRId64") || Mem freed (%"PRId64").\n",
 	       mem_after_free, mem_freed);
@@ -13954,6 +14008,8 @@ static int ut_btree_suite_init(void)
 
 	M0_ALLOC_PTR(ut_seg);
 	M0_ASSERT(ut_seg != NULL);
+
+	m0_btree_glob_init();
 	/* Init BE */
 	m0_be_ut_backend_init(ut_be);
 	m0_be_ut_seg_init(ut_seg, ut_be, BE_UT_SEG_SIZE);
@@ -13975,6 +14031,7 @@ static int ut_btree_suite_fini(void)
 	m0_free(ut_seg);
 	m0_free(ut_be);
 
+	m0_btree_glob_fini();
 	M0_LEAVE();
 	return 0;
 }

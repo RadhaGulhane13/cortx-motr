@@ -221,6 +221,35 @@ enum m0_btree_purge_user{
 	M0_PU_EXTERNAL,
 };
 
+#define REC_INIT(p_rec, pp_key, p_ksz, pp_val, p_vsz)                          \
+	({                                                                     \
+		M0_CASSERT(M0_HAS_TYPE((p_rec), struct m0_btree_rec *));       \
+									       \
+		(p_rec)->r_key.k_data = M0_BUFVEC_INIT_BUF((pp_key), (p_ksz)); \
+		(p_rec)->r_val        = M0_BUFVEC_INIT_BUF((pp_val), (p_vsz)); \
+	})
+
+#define REC_INIT_WITH_CRC(p_rec, pp_key, p_ksz, pp_val, p_vsz, crc_type)       \
+	({                                                                     \
+		REC_INIT(p_rec, pp_key, p_ksz, pp_val, p_vsz);                 \
+		(p_rec)->r_crc_type   = crc_type;                              \
+	})
+
+#define COPY_RECORD(p_tgt, p_src)                                              \
+	({                                                                     \
+		struct m0_btree_rec *__tgt_rec = (p_tgt);                      \
+		struct m0_btree_rec *__src_rec = (p_src);                      \
+									       \
+		M0_CASSERT(M0_HAS_TYPE((p_tgt), struct m0_btree_rec *));       \
+		M0_CASSERT(M0_HAS_TYPE((p_src), struct m0_btree_rec *));       \
+		m0_bufvec_copy(&__tgt_rec->r_key.k_data,                       \
+			       &__src_rec ->r_key.k_data,                      \
+			       m0_vec_count(&__src_rec ->r_key.k_data.ov_vec));\
+		m0_bufvec_copy(&__tgt_rec->r_val,                              \
+			       &__src_rec->r_val,                              \
+			       m0_vec_count(&__src_rec ->r_val.ov_vec));       \
+	})
+
 /**
  * Btree functions related to credit management for tree operations
  */
@@ -713,10 +742,15 @@ M0_INTERNAL void m0_btree_del_credit2(const struct m0_btree_type *type,
 
 M0_INTERNAL int     m0_btree_mod_init(void);
 M0_INTERNAL void    m0_btree_mod_fini(void);
-M0_INTERNAL int64_t m0_btree_lrulist_purge(int64_t size);
+M0_INTERNAL void    m0_btree_glob_init(void);
+M0_INTERNAL void    m0_btree_glob_fini(void);
+M0_INTERNAL int64_t m0_btree_lrulist_purge(int64_t size, int64_t num_nodes);
 M0_INTERNAL int64_t m0_btree_lrulist_purge_check(enum m0_btree_purge_user user,
 						 int64_t size);
-
+M0_INTERNAL void    m0_btree_lrulist_set_lru_config(int64_t slow_lru_mem_release,
+						    int64_t wm_low,
+						    int64_t wm_target,
+						    int64_t wm_high);
 
 #define M0_BTREE_OP_SYNC_WITH_RC(bop, action)                           \
 	({                                                              \
