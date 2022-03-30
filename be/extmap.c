@@ -253,7 +253,7 @@ static int be_emap_delete_wrapper(struct m0_btree *btree, struct m0_be_tx *tx,
 				op,
 				m0_btree_del(btree, &r_key, NULL, op, tx));
 	if (rc == 0) {
-		M0_LOG(M0_ERROR,"RG EMAP DEL KEY->"U128X_F":%" PRIx64, U128_P(&e_key.ek_prefix), e_key.ek_offset);
+		M0_LOG(M0_ERROR,"RG EMAP DEL KEY->"U128X_F":%" PRIu64, U128_P(&e_key.ek_prefix), e_key.ek_offset);
 
 	}
 	return rc;
@@ -272,7 +272,7 @@ static int be_emap_insert_callback(struct m0_btree_cb  *cb,
 		       m0_vec_count(&datum->r_key.k_data.ov_vec));
 	m0_bufvec_copy(&rec->r_val, &datum->r_val,
 		       m0_vec_count(&rec->r_val.ov_vec));
-	M0_LOG(M0_ERROR,"RG EMAP PUT KEY->"U128X_F":%" PRIx64,
+	M0_LOG(M0_ERROR,"RG EMAP PUT KEY->"U128X_F":%" PRIu64,
 			U128_P(&key->ek_prefix), key->ek_offset);
 
 	return 0;
@@ -337,7 +337,7 @@ static int be_emap_update_wrapper(struct m0_btree *btree, struct m0_be_tx *tx,
 			m0_btree_update(btree, &rec, &update_cb, 0, op, tx));
 	if (rc == 0) {
 		struct m0_be_emap_key   *key = k_ptr;
-		M0_LOG(M0_ERROR,"RG EMAP UPDATE KEY->"U128X_F":%" PRIx64,
+		M0_LOG(M0_ERROR,"RG EMAP UPDATE KEY->"U128X_F":%" PRIu64,
 			U128_P(&key->ek_prefix), key->ek_offset);
 	}
 	return rc;
@@ -1234,7 +1234,7 @@ static int emap_it_open(struct m0_be_emap_cursor *it, int prev_rc, uint64_t flag
 								 (void *)&rec->er_footer : NULL;
 		it->ec_unit_size = rec->er_unit_size;
  		if (!emap_it_prefix_ok(it)) {
-			M0_LOG(M0_ERROR, "RG emap_it_prefix_is_not_ok -ESRCH opcode: %" PRIx64, flags);
+			M0_LOG(M0_ERROR, "RG emap_it_prefix_is_not_ok -ESRCH opcode: %" PRIu64, flags);
 			rc = -ESRCH;
 		}
 	}
@@ -1283,10 +1283,10 @@ static int emap_it_get_cb(struct m0_btree_cb *cb, struct m0_btree_rec *rec)
 	};
 
 	key = keybuf.b_addr;
-	M0_LOG(M0_ERROR,"RG EMAP KEY REQUIRED->"U128X_F":%" PRIx64, U128_P(&it->ec_key.ek_prefix), it->ec_key.ek_offset);
+	M0_LOG(M0_ERROR,"RG EMAP KEY REQUIRED->"U128X_F":%" PRIu64, U128_P(&it->ec_key.ek_prefix), it->ec_key.ek_offset);
 
 	it->ec_key = *key;
-	M0_LOG(M0_ERROR, "RG EMAP KEY RECEIVED->"U128X_F":%" PRIx64, U128_P(&it->ec_key.ek_prefix), it->ec_key.ek_offset);
+	M0_LOG(M0_ERROR, "RG EMAP KEY RECEIVED->"U128X_F":%" PRIu64, U128_P(&it->ec_key.ek_prefix), it->ec_key.ek_offset);
 
 	/* Record operation */
 	if (it->ec_recbuf.b_addr != NULL)
