@@ -101,6 +101,21 @@ enum m0_btree_crc_type {
 	M0_BCT_BTREE_ENC_RAW_HASH,
 };
 
+enum m0_btree_addr_type {
+	/**
+	 * Default addressing type, where keys and values will be embedded
+	 * inside the node.
+	 */
+	EMBEDDED_RECORD,
+
+	/**
+	 * In case of INDIRECT_ADDRESSING, keys and values will be allocated
+	 * separately outside the node and node will contain addresses where
+	 * keys and values are present.
+	 */
+	INDIRECT_ADDRESSING,
+};
+
 struct m0_btree_type {
 	enum m0_btree_types tt_id;
 	int ksize;
@@ -147,6 +162,7 @@ struct m0_btree_idata {
 	const struct m0_btree_type  *bt;
 	const struct node_type      *nt;
 	enum m0_btree_crc_type       crc_type;
+	enum m0_btree_addr_type      addr_type;
 	int                          ks;
 	int                          vs;
 	struct m0_fid                fid;
@@ -345,6 +361,7 @@ M0_INTERNAL void m0_btree_close(struct m0_btree *arbor, struct m0_btree_op *bop)
 M0_INTERNAL void m0_btree_create(void *addr, int nob,
 				 const struct m0_btree_type *bt,
 				 enum m0_btree_crc_type crc_type,
+				 enum m0_btree_addr_type addr_type,
 				 struct m0_btree_op *bop, struct m0_btree *tree,
 				 struct m0_be_seg *seg,
 				 const struct m0_fid *fid, struct m0_be_tx *tx,
@@ -727,10 +744,13 @@ M0_INTERNAL int     m0_btree_mod_init(void);
 M0_INTERNAL void    m0_btree_mod_fini(void);
 M0_INTERNAL void    m0_btree_glob_init(void);
 M0_INTERNAL void    m0_btree_glob_fini(void);
-M0_INTERNAL int64_t m0_btree_lrulist_purge(int64_t size);
+M0_INTERNAL int64_t m0_btree_lrulist_purge(int64_t size, int64_t num_nodes);
 M0_INTERNAL int64_t m0_btree_lrulist_purge_check(enum m0_btree_purge_user user,
 						 int64_t size);
-
+M0_INTERNAL void    m0_btree_lrulist_set_lru_config(int64_t slow_lru_mem_release,
+						    int64_t wm_low,
+						    int64_t wm_target,
+						    int64_t wm_high);
 
 #define M0_BTREE_OP_SYNC_WITH_RC(bop, action)                           \
 	({                                                              \

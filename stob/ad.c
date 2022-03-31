@@ -1158,6 +1158,8 @@ M0_INTERNAL int stob_ad_cursor(struct m0_stob_ad_domain *adom,
 		&it->ec_op,
 		m0_be_emap_lookup(&adom->sad_adata, &prefix, offset, it),
 		bo_u.u_emap.e_rc);
+	if (rc)
+		return M0_ERR(rc);
 	return M0_RC(rc);
 }
 
@@ -2081,7 +2083,7 @@ static int stob_ad_io_launch_prepare(struct m0_stob_io *io)
 	adom = stob_ad_domain2ad(m0_stob_dom_get(io->si_obj));
 	rc = stob_ad_cursors_init(io, adom, &it, &src, &dst, &map);
 	if (rc != 0)
-		return M0_RC(rc);
+		return M0_ERR(rc);
 
 	back->si_opcode   = io->si_opcode;
 	back->si_flags    = io->si_flags;

@@ -603,7 +603,7 @@ int m0_cob_domain_create_prepared(struct m0_cob_domain          **out,
 	M0_BE_TX_CAPTURE_PTR(seg, tx, &dom->cd_footer);
 
 	bt = (struct m0_btree_type){.tt_id = M0_BT_COB_OBJECT_INDEX,
-		.ksize = sizeof(struct m0_cob_oikey),
+		.ksize = -1,
 		.vsize = -1,
 	};
 	keycmp.rko_keycmp = oi_cmp;
@@ -613,7 +613,7 @@ int m0_cob_domain_create_prepared(struct m0_cob_domain          **out,
 				      m0_btree_create(&dom->cd_oi_node,
 						      sizeof dom->cd_oi_node,
 						      &bt, M0_BCT_NO_CRC,
-						      &b_op,
+						      INDIRECT_ADDRESSING, &b_op,
 						      dom->cd_object_index, seg,
 						      &fid, tx, &keycmp));
 	M0_ASSERT(rc == 0);
@@ -629,13 +629,13 @@ int m0_cob_domain_create_prepared(struct m0_cob_domain          **out,
 				      m0_btree_create(&dom->cd_ns_node,
 						      sizeof dom->cd_ns_node,
 						      &bt, M0_BCT_NO_CRC,
-						      &b_op,
+						      INDIRECT_ADDRESSING, &b_op,
 						      dom->cd_namespace, seg,
 						      &fid, tx, &keycmp));
 	M0_ASSERT(rc == 0);
 
 	bt = (struct m0_btree_type){.tt_id = M0_BT_COB_FILEATTR_BASIC,
-		.ksize = sizeof(struct m0_cob_fabkey),
+		.ksize = -1,
 		.vsize = -1,
 	};
 	keycmp.rko_keycmp = fb_cmp;
@@ -645,7 +645,7 @@ int m0_cob_domain_create_prepared(struct m0_cob_domain          **out,
 				      m0_btree_create(&dom->cd_fa_basic_node,
 						      sizeof dom->cd_fa_basic_node,
 						      &bt, M0_BCT_NO_CRC,
-						      &b_op,
+						      INDIRECT_ADDRESSING, &b_op,
 						      dom->cd_fileattr_basic,
 						      seg, &fid, tx, &keycmp));
 	M0_ASSERT(rc == 0);
@@ -661,7 +661,7 @@ int m0_cob_domain_create_prepared(struct m0_cob_domain          **out,
 				      m0_btree_create(&dom->cd_fa_omg_node,
 						      sizeof dom->cd_fa_omg_node,
 						      &bt, M0_BCT_NO_CRC,
-						      &b_op,
+						      EMBEDDED_RECORD, &b_op,
 						      dom->cd_fileattr_omg, seg,
 						      &fid, tx, &keycmp));
 	M0_ASSERT(rc == 0);
@@ -677,7 +677,7 @@ int m0_cob_domain_create_prepared(struct m0_cob_domain          **out,
 				      m0_btree_create(&dom->cd_fa_ea_node,
 						      sizeof dom->cd_fa_ea_node,
 						      &bt, M0_BCT_NO_CRC,
-						      &b_op,
+						      INDIRECT_ADDRESSING, &b_op,
 						      dom->cd_fileattr_ea, seg,
 						      &fid, tx, &keycmp));
 	M0_ASSERT(rc == 0);
@@ -1022,14 +1022,15 @@ M0_INTERNAL int m0_cob_domain_mkfs(struct m0_cob_domain *dom,
 
 	m0_buf_init(&key, &omgkey, sizeof omgkey);
 	m0_buf_init(&rec, &omgrec, sizeof omgrec);
-	cob_table_insert(dom->cd_fileattr_omg, tx, &key, &rec);
-
+	rc = cob_table_insert(dom->cd_fileattr_omg, tx, &key, &rec);
+	if (rc != 0)
+		return M0_ERR(rc);
 	/**
 	   Create root cob where all namespace is stored.
 	 */
 	rc = m0_cob_alloc(dom, &cob);
 	if (rc != 0)
-		return M0_RC(rc);
+		return M0_ERR(rc);
 
 	rc = m0_cob_nskey_make(&nskey, &M0_COB_ROOT_FID, M0_COB_ROOT_NAME,
 			       strlen(M0_COB_ROOT_NAME));
@@ -2049,8 +2050,9 @@ M0_INTERNAL int m0_cob_name_update(struct m0_cob *cob,
 
 	m0_buf_init(&key, tgtkey, m0_cob_nskey_size(tgtkey));
 	/* here @val consists value to insert */
-	cob_table_insert(cob->co_dom->cd_namespace, tx, &key, &val);
-
+	rc = cob_table_insert(cob->co_dom->cd_namespace, tx, &key, &val);
+	if (rc != 0)
+		return M0_ERR(rc);
 	/*
 	 * Kill old record. Error will be returned if
 	 * nothing found.
@@ -2200,6 +2202,7 @@ M0_INTERNAL int m0_cob_ea_set(struct m0_cob *cob,
 {
 	struct m0_buf key;
 	struct m0_buf val;
+	int           rc;
 
 	M0_PRE(cob != NULL);
 	M0_PRE(eakey != NULL);
@@ -2210,7 +2213,9 @@ M0_INTERNAL int m0_cob_ea_set(struct m0_cob *cob,
 
 	m0_buf_init(&key, eakey, m0_cob_eakey_size(eakey));
 	m0_buf_init(&val, earec, m0_cob_earec_size(earec));
-	cob_table_insert(cob->co_dom->cd_fileattr_ea, tx, &key, &val);
+	rc = cob_table_insert(cob->co_dom->cd_fileattr_ea, tx, &key, &val);
+	if (rc != 0)
+		return M0_ERR(rc);
 
 	return 0;
 }

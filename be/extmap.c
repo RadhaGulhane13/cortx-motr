@@ -82,12 +82,12 @@
    @{
  */
 
-/*
-static void key_print(const struct m0_be_emap_key *k)
-{
-	printf(U128X_F":%08lx", U128_P(&k->ek_prefix), k->ek_offset);
-}
-*/
+
+// static void key_print(const struct m0_be_emap_key *k)
+// {
+// 	printf(U128X_F":%08lx", U128_P(&k->ek_prefix), k->ek_offset);
+// }
+
 static int be_emap_cmp(const void *key0, const void *key1);
 static int emap_it_pack(struct m0_be_emap_cursor *it,
 			int (*btree_func)(struct m0_btree     *btree,
@@ -97,7 +97,7 @@ static int emap_it_pack(struct m0_be_emap_cursor *it,
 				     const struct m0_buf      *val),
 			struct m0_be_tx *tx);
 static bool emap_it_prefix_ok(const struct m0_be_emap_cursor *it);
-static int emap_it_open(struct m0_be_emap_cursor *it, int prev_rc);
+static int emap_it_open(struct m0_be_emap_cursor *it, int prev_rc, uint64_t flags);
 static void emap_it_init(struct m0_be_emap_cursor *it,
 			 const struct m0_uint128  *prefix,
 			 m0_bindex_t               offset,
@@ -244,6 +244,7 @@ static int be_emap_delete_wrapper(struct m0_btree *btree, struct m0_be_tx *tx,
 	void                *k_ptr = key->b_addr;
 	m0_bcount_t          ksize = key->b_nob;
 	int                  rc;
+	struct m0_be_emap_key   e_key = *(struct m0_be_emap_key*)(key->b_addr);
 	struct m0_btree_key  r_key = {
 		.k_data  = M0_BUFVEC_INIT_BUF(&k_ptr, &ksize),
 		};
@@ -251,6 +252,10 @@ static int be_emap_delete_wrapper(struct m0_btree *btree, struct m0_be_tx *tx,
 	rc = M0_BTREE_OP_SYNC_WITH_RC(
 				op,
 				m0_btree_del(btree, &r_key, NULL, op, tx));
+	if (rc == 0) {
+		M0_LOG(M0_ERROR,"RG EMAP DEL KEY->"U128X_F":%" PRIu64, U128_P(&e_key.ek_prefix), e_key.ek_offset);
+
+	}
 	return rc;
 }
 
@@ -258,12 +263,18 @@ static int be_emap_insert_callback(struct m0_btree_cb  *cb,
 			      struct m0_btree_rec *rec)
 {
 	struct m0_btree_rec     *datum = cb->c_datum;
+	struct m0_be_emap_key   *key = rec->r_key.k_data.ov_buf[0];
+
+
 
 	/** Write the Key and Value to the location indicated in rec. */
 	m0_bufvec_copy(&rec->r_key.k_data,  &datum->r_key.k_data,
 		       m0_vec_count(&datum->r_key.k_data.ov_vec));
 	m0_bufvec_copy(&rec->r_val, &datum->r_val,
 		       m0_vec_count(&rec->r_val.ov_vec));
+	M0_LOG(M0_ERROR,"RG EMAP PUT KEY->"U128X_F":%" PRIu64,
+			U128_P(&key->ek_prefix), key->ek_offset);
+
 	return 0;
 }
 
@@ -324,6 +335,11 @@ static int be_emap_update_wrapper(struct m0_btree *btree, struct m0_be_tx *tx,
  	rc = M0_BTREE_OP_SYNC_WITH_RC(
 			op,
 			m0_btree_update(btree, &rec, &update_cb, 0, op, tx));
+	if (rc == 0) {
+		struct m0_be_emap_key   *key = k_ptr;
+		M0_LOG(M0_ERROR,"RG EMAP UPDATE KEY->"U128X_F":%" PRIu64,
+			U128_P(&key->ek_prefix), key->ek_offset);
+	}
 	return rc;
 }
 
@@ -399,7 +415,7 @@ M0_INTERNAL void m0_be_emap_create(struct m0_be_emap   *map,
 
 	bt = (struct m0_btree_type) {
 		.tt_id = M0_BT_EMAP_EM_MAPPING,
-		.ksize = sizeof(struct m0_be_emap_key),
+		.ksize = -1,
 		.vsize = -1,
 	};
 	keycmp.rko_keycmp = be_emap_cmp;
@@ -408,7 +424,8 @@ M0_INTERNAL void m0_be_emap_create(struct m0_be_emap   *map,
 				      m0_btree_create(&map->em_mp_node,
 						      sizeof map->em_mp_node,
 						      &bt, M0_BCT_NO_CRC,
-						      &b_op, map->em_mapping,
+						      INDIRECT_ADDRESSING, &b_op,
+						      map->em_mapping,
 						      map->em_seg, &fid, tx,
 						      &keycmp));
 	if (rc != 0) {
@@ -579,16 +596,24 @@ M0_INTERNAL void m0_be_emap_merge(struct m0_be_emap_cursor *it,
 
 	m0_rwlock_write_lock(emap_rwlock(it->ec_map));
 	rc = emap_it_pack(it, be_emap_delete_wrapper, tx);
+	if (rc != 0)
+		M0_ERR(rc);
 
 	if (rc == 0 && delta < m0_ext_length(&it->ec_seg.ee_ext)) {
 		it->ec_seg.ee_ext.e_end -= delta;
 		rc = emap_it_pack(it, be_emap_insert_wrapper, tx);
+		if (rc != 0)
+			M0_ERR(rc);
 		inserted = true;
 	}
 
-	if (rc == 0)
+	if (rc == 0) {
 		rc = emap_it_get(it) /* re-initialise cursor position */ ?:
 			update_next_segment(it, tx, delta, inserted);
+		if (rc != 0)
+			M0_ERR(rc);
+	}
+
 	m0_rwlock_write_unlock(emap_rwlock(it->ec_map));
 
 	M0_ASSERT_EX(ergo(rc == 0, be_emap_invariant(it)));
@@ -922,6 +947,9 @@ M0_INTERNAL void m0_be_emap_obj_insert(struct m0_be_emap       *map,
 	op->bo_u.u_emap.e_rc = M0_BTREE_OP_SYNC_WITH_RC(
 		&kv_op,
 		m0_btree_put(map->em_mapping, &rec, &put_cb, &kv_op, tx));
+	if (op->bo_u.u_emap.e_rc != 0)
+		M0_ERR(op->bo_u.u_emap.e_rc);
+
 	m0_rwlock_write_unlock(emap_rwlock(map));
 
 	m0_be_op_done(op);
@@ -966,7 +994,8 @@ M0_INTERNAL void m0_be_emap_obj_delete(struct m0_be_emap *map,
  err:
 #endif
 	op->bo_u.u_emap.e_rc = rc;
-
+	if (op->bo_u.u_emap.e_rc != 0)
+		M0_ERR(op->bo_u.u_emap.e_rc);
 	m0_be_op_done(op);
 }
 
@@ -1194,7 +1223,7 @@ static bool emap_it_prefix_ok(const struct m0_be_emap_cursor *it)
 	return m0_uint128_eq(&it->ec_seg.ee_pre, &it->ec_prefix);
 }
 
-static int emap_it_open(struct m0_be_emap_cursor *it, int prev_rc)
+static int emap_it_open(struct m0_be_emap_cursor *it, int prev_rc, uint64_t flags)
 {
 	struct m0_be_emap_key *key;
 	struct m0_be_emap_rec *rec;
@@ -1216,8 +1245,10 @@ static int emap_it_open(struct m0_be_emap_cursor *it, int prev_rc)
 		ext->ee_cksum_buf.b_addr = rec->er_cksum_nob ?
 								 (void *)&rec->er_footer : NULL;
 		it->ec_unit_size = rec->er_unit_size;
- 		if (!emap_it_prefix_ok(it))
+ 		if (!emap_it_prefix_ok(it)) {
+			M0_LOG(M0_ERROR, "RG emap_it_prefix_is_not_ok -ESRCH opcode: %" PRIu64, flags);
 			rc = -ESRCH;
+		}
 	}
 	it->ec_op.bo_u.u_emap.e_rc = rc;
 
@@ -1264,7 +1295,10 @@ static int emap_it_get_cb(struct m0_btree_cb *cb, struct m0_btree_rec *rec)
 	};
 
 	key = keybuf.b_addr;
+	M0_LOG(M0_ERROR,"RG EMAP KEY REQUIRED->"U128X_F":%" PRIu64, U128_P(&it->ec_key.ek_prefix), it->ec_key.ek_offset);
+
 	it->ec_key = *key;
+	M0_LOG(M0_ERROR, "RG EMAP KEY RECEIVED->"U128X_F":%" PRIu64, U128_P(&it->ec_key.ek_prefix), it->ec_key.ek_offset);
 
 	/* Record operation */
 	if (it->ec_recbuf.b_addr != NULL)
@@ -1308,7 +1342,7 @@ static int emap_it_get(struct m0_be_emap_cursor *it)
 	rc = M0_BTREE_OP_SYNC_WITH_RC(&kv_op,
 				      m0_btree_get(btree, &r_key, &cb,
 						   BOF_SLANT, &kv_op));
-	rc = emap_it_open(it, rc);
+	rc = emap_it_open(it, rc, BOF_SLANT);
 	return rc;
 }
 
@@ -1347,7 +1381,7 @@ static int be_emap_next(struct m0_be_emap_cursor *it)
 	rc = M0_BTREE_OP_SYNC_WITH_RC(&kv_op,
 				      m0_btree_iter(btree, &r_key, &cb,
 						    BOF_NEXT, &kv_op));
-	rc = emap_it_open(it, rc);
+	rc = emap_it_open(it, rc, BOF_NEXT);
 	return rc;
 }
 
@@ -1371,7 +1405,7 @@ be_emap_prev(struct m0_be_emap_cursor *it)
 				      m0_btree_iter(btree, &r_key, &cb,
 						    BOF_PREV, &kv_op));
 
-	rc = emap_it_open(it, rc);
+	rc = emap_it_open(it, rc, BOF_PREV);
 	return rc;
 }
 
