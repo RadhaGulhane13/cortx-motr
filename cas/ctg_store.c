@@ -288,12 +288,14 @@ int m0_ctg_create(struct m0_be_seg *seg, struct m0_be_tx *tx,
 	struct m0_btree_type        bt      = {
 		.tt_id = M0_BT_CAS_CTG,
 	};
+	enum m0_btree_addr_type addr_type = EMBEDDED_RECORD;
 
 	M0_PRE(M0_IN(ctype, (CTT_CTG, CTT_META, CTT_DEADIDX, CTT_CTIDX)));
 
 	if (ctype == CTT_CTG) {
 		bt.ksize = -1;
 		bt.vsize = -1;
+		addr_type = INDIRECT_ADDRESSING;
 	} else if (ctype == CTT_META) {
 		bt.ksize = M0_CAS_CTG_KV_HDR_SIZE + sizeof(struct m0_fid);
 		bt.vsize = M0_CAS_CTG_KV_HDR_SIZE + sizeof(ctg);
@@ -322,7 +324,7 @@ int m0_ctg_create(struct m0_be_seg *seg, struct m0_be_tx *tx,
 				      m0_btree_create(&ctg->cc_node,
 						      sizeof ctg->cc_node,
 						      &bt, M0_BCT_NO_CRC,
-						      INDIRECT_ADDRESSING,
+						      addr_type,
 						      &b_op, ctg->cc_tree, seg,
 						      fid, tx, &key_cmp));
 	if (rc != 0) {
