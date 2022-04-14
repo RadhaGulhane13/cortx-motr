@@ -81,6 +81,7 @@ MOTR_M0D_MAX_RPC_MSG_SIZE=524288
 
 # Backend log size (in bytes) for all m0d's. Default is 512 MiB.
 #MOTR_M0D_BELOG_SIZE=536870912
+MOTR_M0D_BELOG_SIZE=2684354560
 
 # Backend segment size (in bytes) for all m0d's, except for IO service.
 # Default is 8 GiB.
