@@ -213,7 +213,7 @@ static int test_ad_init(bool use_small_credits)
 	int               rc;
 	struct m0_stob_id stob_id;
 
-	rc = m0_stob_domain_create("linuxstob:./__s", "directio=true",
+	rc = m0_stob_domain_create("linuxstob:./__s-ad", "directio=true",
 				    0xc0de, NULL, &dom_back);
 	M0_ASSERT(rc == 0);
 

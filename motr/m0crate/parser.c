@@ -54,6 +54,7 @@ enum config_key_val {
 	CASS_COL_FAMILY,
 	ADDB_INIT,
 	ADDB_SIZE,
+	IS_ENF_META,
 	LOG_LEVEL,
 	/*
 	 * All parameters below are workload-specific,
@@ -160,6 +161,7 @@ struct key_lookup_table lookuptable[] = {
 	{"STARTING_OBJ_ID", START_OBJ_ID},
 	{"MODE", MODE},
 	{"MAX_NR_OPS", MAX_NR_OPS},
+	{"IS_ENF_META", IS_ENF_META},
 	{"NR_ROUNDS", NR_ROUNDS},
 	{"PATTERN", PATTERN},
 	{"INSERT", INSERT},
@@ -678,7 +680,9 @@ int copy_value(struct workload *load, int max_workload, int *index,
 			cbw->cwb_bo[BOT_DELETE].prcnt = parse_int(value,
 								  DELETE);
 			break;
-
+		case IS_ENF_META:
+			conf->is_enf_meta = atoi(value);
+			break;
 		default:
 			break;
 	}
