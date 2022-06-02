@@ -231,6 +231,7 @@ static int tx_group_fom_tick(struct m0_fom *fom)
 	case TGS_RESET:
 		m0_be_tx_group_reset(gr);
 		m0_be_tx_group_open(gr);
+		gr->tg_fom.tgf_gen.fo_sm_phase.sm_id = m0_dummy_id_generate();
 		m0_fom_phase_set(fom, TGS_OPEN);
 		return M0_FSO_AGAIN;
 	case TGS_STOPPING:
